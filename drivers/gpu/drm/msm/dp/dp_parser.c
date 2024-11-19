@@ -192,24 +192,21 @@ static int dp_parser_pinctrl(struct dp_parser *parser)
 	pinctrl->pin = devm_pinctrl_get(&parser->pdev->dev);
 
 	if (IS_ERR_OR_NULL(pinctrl->pin)) {
-		rc = PTR_ERR(pinctrl->pin);
-		pr_err("failed to get pinctrl, rc=%d\n", rc);
+		pr_warn("failed to get pinctrl, rc=%ld\n", PTR_ERR(pinctrl->pin));
 		goto error;
 	}
 
 	pinctrl->state_active = pinctrl_lookup_state(pinctrl->pin,
 					"mdss_dp_active");
 	if (IS_ERR_OR_NULL(pinctrl->state_active)) {
-		rc = PTR_ERR(pinctrl->state_active);
-		pr_err("failed to get pinctrl active state, rc=%d\n", rc);
+		pr_warn("failed to get pinctrl active state, rc=%ld\n", PTR_ERR(pinctrl->state_active));
 		goto error;
 	}
 
 	pinctrl->state_suspend = pinctrl_lookup_state(pinctrl->pin,
 					"mdss_dp_sleep");
 	if (IS_ERR_OR_NULL(pinctrl->state_suspend)) {
-		rc = PTR_ERR(pinctrl->state_suspend);
-		pr_err("failed to get pinctrl suspend state, rc=%d\n", rc);
+		pr_err("failed to get pinctrl suspend state, rc=%ld\n", PTR_ERR(pinctrl->state_suspend));
 		goto error;
 	}
 error:
@@ -240,8 +237,7 @@ static int dp_parser_gpio(struct dp_parser *parser)
 			dp_gpios[i], 0);
 
 		if (!gpio_is_valid(mp->gpio_config[i].gpio)) {
-			pr_err("%s gpio not specified\n", dp_gpios[i]);
-			return -EINVAL;
+			pr_warn("%s gpio not specified\n", dp_gpios[i]);
 		}
 
 		strlcpy(mp->gpio_config[i].gpio_name, dp_gpios[i],

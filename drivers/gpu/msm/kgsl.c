@@ -44,6 +44,8 @@
 #include "kgsl_compat.h"
 #include "kgsl_pool.h"
 
+#include "kgsl_htc.h"
+
 #undef MODULE_PARAM_PREFIX
 #define MODULE_PARAM_PREFIX "kgsl."
 
@@ -327,7 +329,7 @@ kgsl_mem_entry_destroy(struct kref *kref)
 			    entry->memdesc.sgt->nents, i) {
 			page = sg_page(sg);
 			for (j = 0; j < (sg->length >> PAGE_SHIFT); j++)
-				set_page_dirty(nth_page(page, j));
+				set_page_dirty_lock(nth_page(page, j));
 		}
 	}
 
@@ -395,6 +397,9 @@ static int kgsl_mem_entry_attach_process(struct kgsl_device *device,
 	ret = kgsl_mem_entry_track_gpuaddr(device, process, entry);
 	if (ret) {
 		kgsl_process_private_put(process);
+		spin_lock(&process->mem_lock);
+		kgsl_dump_contextpid_locked(&device->context_idr);
+		spin_unlock(&process->mem_lock);
 		return ret;
 	}
 
@@ -414,6 +419,7 @@ static int kgsl_mem_entry_attach_process(struct kgsl_device *device,
 
 	entry->id = id;
 	entry->priv = process;
+	entry->memdesc.private = process;
 
 	/*
 	 * Map the memory if a GPU address is already assigned, either through
@@ -1395,6 +1401,45 @@ long kgsl_ioctl_device_getproperty(struct kgsl_device_private *dev_priv,
 		}
 
 		kgsl_context_put(context);
+		break;
+	}
+	case KGSL_PROP_SECURE_BUFFER_ALIGNMENT:
+	{
+		unsigned int align;
+
+		if (param->sizebytes != sizeof(unsigned int)) {
+			result = -EINVAL;
+			break;
+		}
+		/*
+		 * XPUv2 impose the constraint of 1MB memory alignment,
+		 * on the other hand Hypervisor does not have such
+		 * constraints. So driver should fulfill such
+		 * requirements when allocating secure memory.
+		 */
+		align = MMU_FEATURE(&dev_priv->device->mmu,
+				KGSL_MMU_HYP_SECURE_ALLOC) ? PAGE_SIZE : SZ_1M;
+
+		if (copy_to_user(param->value, &align, sizeof(align)))
+			result = -EFAULT;
+
+		break;
+	}
+	case KGSL_PROP_SECURE_CTXT_SUPPORT:
+	{
+		unsigned int secure_ctxt;
+
+		if (param->sizebytes != sizeof(unsigned int)) {
+			result = -EINVAL;
+			break;
+		}
+
+		secure_ctxt = dev_priv->device->mmu.secured ? 1 : 0;
+
+		if (copy_to_user(param->value, &secure_ctxt,
+				sizeof(secure_ctxt)))
+			result = -EFAULT;
+
 		break;
 	}
 	default:
@@ -4763,6 +4808,9 @@ int kgsl_device_platform_probe(struct kgsl_device *device)
 	/* Initialize common sysfs entries */
 	kgsl_pwrctrl_init_sysfs(device);
 
+	/* Initialize htc feature */
+	kgsl_device_htc_init(device);
+
 	return 0;
 
 error_close_mmu:
@@ -4920,6 +4968,8 @@ static int __init kgsl_core_init(void)
 		goto err;
 
 	kgsl_memfree_init();
+
+	kgsl_driver_htc_init(&kgsl_driver.priv);
 
 	return 0;
 

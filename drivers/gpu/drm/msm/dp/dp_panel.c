@@ -24,6 +24,8 @@
 #define VSC_EXT_VESA_SDP_SUPPORTED BIT(4)
 #define VSC_EXT_VESA_SDP_CHAINING_SUPPORTED BIT(5)
 
+#define READ_EDID_MAX_COUNT 20
+
 enum dp_panel_hdr_pixel_encoding {
 	RGB,
 	YCbCr444,
@@ -274,6 +276,7 @@ static int dp_panel_read_edid(struct dp_panel *dp_panel,
 {
 	int ret = 0;
 	struct dp_panel_private *panel;
+	int count = 0;
 
 	if (!dp_panel) {
 		pr_err("invalid input\n");
@@ -288,8 +291,11 @@ static int dp_panel_read_edid(struct dp_panel *dp_panel,
 		goto end;
 	}
 
-	sde_get_edid(connector, &panel->aux->drm_aux->ddc,
-		(void **)&dp_panel->edid_ctrl);
+	do {
+		sde_get_edid(connector, &panel->aux->drm_aux->ddc,
+			(void **)&dp_panel->edid_ctrl);
+		pr_info("EDID read %s, count=%d", !dp_panel->edid_ctrl->edid?"failed":"successed", count);
+	} while (!dp_panel->edid_ctrl->edid && (count++ < READ_EDID_MAX_COUNT));
 	if (!dp_panel->edid_ctrl->edid) {
 		pr_err("EDID read failed\n");
 		ret = -EINVAL;

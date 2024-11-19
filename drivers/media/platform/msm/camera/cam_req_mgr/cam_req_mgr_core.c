@@ -23,6 +23,11 @@
 #include "cam_debug_util.h"
 #include "cam_req_mgr_dev.h"
 
+//HTC_START, count sensor fps
+#include <linux/time.h>
+#define SENSOR_ISP_MAX 2
+//HTC_END
+
 static struct cam_req_mgr_core_device *g_crm_core_dev;
 
 void cam_req_mgr_handle_core_shutdown(void)
@@ -1325,9 +1330,9 @@ static struct cam_req_mgr_core_link *__cam_req_mgr_reserve_link(
 		return NULL;
 	}
 
-	if (session->num_links >= MAX_LINKS_PER_SESSION) {
+	if (session->num_links >= MAXIMUM_LINKS_PER_SESSION) {
 		CAM_ERR(CAM_CRM, "Reached max links %d per session limit %d",
-			session->num_links, MAX_LINKS_PER_SESSION);
+			session->num_links, MAXIMUM_LINKS_PER_SESSION);
 		return NULL;
 	}
 
@@ -1362,7 +1367,7 @@ static struct cam_req_mgr_core_link *__cam_req_mgr_reserve_link(
 
 	mutex_lock(&session->lock);
 	/*  Loop through and find a free index */
-	for (i = 0; i < MAX_LINKS_PER_SESSION; i++) {
+	for (i = 0; i < MAXIMUM_LINKS_PER_SESSION; i++) {
 		if (!session->links[i]) {
 			CAM_DBG(CAM_CRM,
 				"Free link index %d found, num_links=%d",
@@ -1372,7 +1377,7 @@ static struct cam_req_mgr_core_link *__cam_req_mgr_reserve_link(
 		}
 	}
 
-	if (i == MAX_LINKS_PER_SESSION) {
+	if (i == MAXIMUM_LINKS_PER_SESSION) {
 		CAM_ERR(CAM_CRM, "Free link index not found");
 		goto error;
 	}
@@ -1433,7 +1438,7 @@ static void __cam_req_mgr_unreserve_link(
 		return;
 	}
 
-	for (i = 0; i < MAX_LINKS_PER_SESSION; i++) {
+	for (i = 0; i < MAXIMUM_LINKS_PER_SESSION; i++) {
 		if (session->links[i] == link)
 			session->links[i] = NULL;
 	}
@@ -1445,7 +1450,7 @@ static void __cam_req_mgr_unreserve_link(
 		 * of only having 2 links in a given session
 		 */
 		session->sync_mode = CAM_REQ_MGR_SYNC_MODE_NO_SYNC;
-		for (i = 0; i < MAX_LINKS_PER_SESSION; i++) {
+		for (i = 0; i < MAXIMUM_LINKS_PER_SESSION; i++) {
 			if (session->links[i])
 				session->links[i]->sync_link = NULL;
 		}
@@ -1836,6 +1841,15 @@ static int cam_req_mgr_process_trigger(void *priv, void *data)
 	struct cam_req_mgr_core_link        *link = NULL;
 	struct cam_req_mgr_req_queue        *in_q = NULL;
 	struct crm_task_payload             *task_data = NULL;
+	//HTC_START, count sensor fps
+	static struct timeval m_last[SENSOR_ISP_MAX];
+	struct timeval m_curr;
+	static int64_t last_frame_id[SENSOR_ISP_MAX];
+	uint32_t time_diff = 0;
+	static int is_1st_frame = 0;
+	static int core_idx = 0;
+	static int32_t link_hdl_1st = 0;
+	//HTC_END
 
 	if (!data || !priv) {
 		CAM_ERR(CAM_CRM, "input args NULL %pK %pK", data, priv);
@@ -1845,6 +1859,45 @@ static int cam_req_mgr_process_trigger(void *priv, void *data)
 	link = (struct cam_req_mgr_core_link *)priv;
 	task_data = (struct crm_task_payload *)data;
 	trigger_data = (struct cam_req_mgr_trigger_notify *)&task_data->u;
+
+	//HTC_START, count sensor fps
+	if ((trigger_data->frame_id == 1) && (is_1st_frame == 0)) {
+		is_1st_frame = 1;
+		link_hdl_1st = trigger_data->link_hdl;
+		core_idx = 0;
+		last_frame_id[0] = last_frame_id[1] = 0;
+	} else {
+		if (link_hdl_1st == trigger_data->link_hdl)
+			core_idx = 0;
+		else
+			core_idx = 1;
+
+		if ((trigger_data->frame_id > 3) && (is_1st_frame == 1))
+			is_1st_frame = 0;
+	}
+
+	if ((trigger_data->frame_id <= 3) || (trigger_data->frame_id == 10))
+	{
+		pr_info("[CAM]%s: req(%d) frame id: %lld\n", __func__, core_idx, trigger_data->frame_id);
+	}
+
+	if(trigger_data->frame_id == 1)
+	{
+		do_gettimeofday(&m_last[core_idx]);
+		last_frame_id[core_idx] = 1;
+	}
+	else
+	{
+		do_gettimeofday(&m_curr);
+		time_diff = (m_curr.tv_sec-m_last[core_idx].tv_sec)*1000000 + (m_curr.tv_usec-m_last[core_idx].tv_usec);
+		if(time_diff >= 1000000)   //1s
+		{
+			pr_info("[CAM]%s: req(%d) frame id: %lld, fps: %lld\n", __func__, core_idx, trigger_data->frame_id, (trigger_data->frame_id-last_frame_id[core_idx]));
+			m_last[core_idx] = m_curr;
+			last_frame_id[core_idx] = trigger_data->frame_id;
+		}
+	}
+	//HTC_END
 
 	CAM_DBG(CAM_REQ, "link_hdl %x frame_id %lld, trigger %x\n",
 		trigger_data->link_hdl,
@@ -2387,7 +2440,7 @@ int cam_req_mgr_destroy_session(
 			ses_info->session_hdl,
 			cam_session->num_links);
 
-		for (i = 0; i < MAX_LINKS_PER_SESSION; i++) {
+		for (i = 0; i < MAXIMUM_LINKS_PER_SESSION; i++) {
 			link = cam_session->links[i];
 
 			if (!link)
@@ -2628,7 +2681,8 @@ int cam_req_mgr_sync_config(
 	}
 
 	if ((sync_info->num_links < 0) ||
-		(sync_info->num_links > MAX_LINKS_PER_SESSION)) {
+		(sync_info->num_links >
+		MAX_LINKS_PER_SESSION)) {
 		CAM_ERR(CAM_CRM, "Invalid num links %d", sync_info->num_links);
 		return -EINVAL;
 	}
@@ -2777,13 +2831,27 @@ int cam_req_mgr_link_control(struct cam_req_mgr_link_control *control)
 		goto end;
 	}
 
+	if (control->num_links > MAX_LINKS_PER_SESSION) {
+		CAM_ERR(CAM_CRM, "Invalid number of links %d",
+			control->num_links);
+		rc = -EINVAL;
+		goto end;
+	}
+
 	mutex_lock(&g_crm_core_dev->crm_lock);
 	for (i = 0; i < control->num_links; i++) {
 		link = (struct cam_req_mgr_core_link *)
 			cam_get_device_priv(control->link_hdls[i]);
 		if (!link) {
+//HTC_START
+#if 0
 			CAM_ERR(CAM_CRM, "Link(%d) is NULL on session 0x%x",
 				i, control->session_hdl);
+#else
+			CAM_ERR_RATE_LIMIT(CAM_CRM, "Link(%d) is NULL on session 0x%x",
+				i, control->session_hdl);
+#endif
+//HTC_END
 			rc = -EINVAL;
 			break;
 		}

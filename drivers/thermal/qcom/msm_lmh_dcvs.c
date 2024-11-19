@@ -27,6 +27,8 @@
 #include <linux/cpu_cooling.h>
 #include <linux/atomic.h>
 #include <linux/regulator/consumer.h>
+#include <linux/string.h>
+#include <soc/qcom/htc_util.h>
 
 #include <asm/smp_plat.h>
 #include <asm/cacheflush.h>
@@ -77,11 +79,22 @@
 #define FREQ_KHZ_TO_HZ(_val) ((_val) * 1000)
 #define FREQ_HZ_TO_KHZ(_val) ((_val) / 1000)
 
+#define CPU_FREQ_SPACING 500000
+#define CPU_FREQ_SPACING_NUM 6
+#define CPU_FREQ_SPACING_COUNT 10
+#define CPU_STRING_LENGTH 6
+
 enum lmh_hw_trips {
 	LIMITS_TRIP_ARM,
 	LIMITS_TRIP_HI,
 	LIMITS_TRIP_MAX,
 };
+
+struct st_htc_lmh_statistic {
+        u32 count;
+};
+
+struct st_htc_lmh_statistic htc_lmh_stat[CONFIG_NR_CPUS][CPU_FREQ_SPACING_NUM];
 
 struct __limits_cdev_data {
 	struct thermal_cooling_device *cdev;
@@ -137,6 +150,57 @@ static int limits_dcvs_get_freq_limits(uint32_t cpu, unsigned long *max_freq,
 	return ret;
 }
 
+void htc_lmh_stat_add(int cpu, int cpu_freq)
+{
+        int temp=0;
+        if (cpu >= 0 && cpu < CONFIG_NR_CPUS){
+		temp = cpu_freq/CPU_FREQ_SPACING;
+		htc_lmh_stat[cpu][temp].count++;
+        }
+
+}
+
+void htc_lmh_stat_show(void)
+{
+        int i = 0, j = 0;
+        int piece_size = 32;
+        int output_size = piece_size * (CONFIG_NR_CPUS + 1);
+        char output[output_size];
+        char piece[piece_size];
+        char cpu_num_str[CPU_STRING_LENGTH];
+        for (i = 0; i < CONFIG_NR_CPUS ; i++) {
+                memset(output, 0, sizeof(output));
+                for (j = CPU_FREQ_SPACING_NUM-1; j >= 0; j--){
+			if( i==0 || i==4 ){ // only print CPU0 & CPU4
+				memset(piece, 0, sizeof(piece));
+				snprintf(cpu_num_str, sizeof(cpu_num_str),"%s%d:", "CPU", i);
+				snprintf(piece, sizeof(piece), "%s%d(%d)",
+					strlen(output)>0 ? "," : cpu_num_str,
+					j,
+					htc_lmh_stat[i][j].count);
+				safe_strcat(output, piece);
+			}
+                }
+                if(strlen(output) > 0){
+                        printk("[K] htc_lmh_status: %s\n", output);
+                }
+        }
+}
+
+void htc_lmh_stat_init(void)
+{
+	int i, j;
+	for (i = 0; i < CONFIG_NR_CPUS ; i++) {
+		for (j = CPU_FREQ_SPACING_NUM-1; j >= 0; j--)
+			htc_lmh_stat[i][j].count = 0;
+	}
+}
+
+void htc_lmh_stat_clear(void)
+{
+        memset(htc_lmh_stat, 0, sizeof(htc_lmh_stat));
+}
+
 static unsigned long limits_mitigation_notify(struct limits_dcvs_hw *hw)
 {
 	uint32_t val = 0;
@@ -177,6 +241,7 @@ static unsigned long limits_mitigation_notify(struct limits_dcvs_hw *hw)
 	sched_update_cpu_freq_min_max(&hw->core_map, 0, max_limit);
 	pr_debug("CPU:%d max limit:%lu\n", cpumask_first(&hw->core_map),
 			max_limit);
+	htc_lmh_stat_add(cpumask_first(&hw->core_map), max_limit);
 	trace_lmh_dcvs_freq(cpumask_first(&hw->core_map), max_limit);
 
 notify_exit:
@@ -665,6 +730,7 @@ static int limits_dcvs_probe(struct platform_device *pdev)
 	device_create_file(&pdev->dev, &hw->lmh_freq_attr);
 
 probe_exit:
+	htc_lmh_stat_init();
 	mutex_lock(&lmh_dcvs_list_access);
 	INIT_LIST_HEAD(&hw->list);
 	list_add(&hw->list, &lmh_dcvs_hw_list);

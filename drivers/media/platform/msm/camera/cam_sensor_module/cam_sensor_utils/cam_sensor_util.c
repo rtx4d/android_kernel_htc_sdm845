@@ -439,6 +439,75 @@ int cam_sensor_i2c_command_parser(
 	return rc;
 }
 
+int cam_sensor_util_i2c_apply_setting(
+	struct camera_io_master *io_master_info,
+	struct i2c_settings_list *i2c_list)
+{
+	int32_t rc = 0;
+	uint32_t i, size;
+
+	switch (i2c_list->op_code) {
+	case CAM_SENSOR_I2C_WRITE_RANDOM: {
+		rc = camera_io_dev_write(io_master_info,
+			&(i2c_list->i2c_settings));
+		if (rc < 0) {
+			CAM_ERR(CAM_SENSOR,
+				"Failed to random write I2C settings: %d",
+				rc);
+			return rc;
+		}
+	break;
+	}
+	case CAM_SENSOR_I2C_WRITE_SEQ: {
+		rc = camera_io_dev_write_continuous(
+			io_master_info, &(i2c_list->i2c_settings), 0);
+		if (rc < 0) {
+			CAM_ERR(CAM_SENSOR,
+				"Failed to seq write I2C settings: %d",
+				rc);
+			return rc;
+		}
+	break;
+	}
+	case CAM_SENSOR_I2C_WRITE_BURST: {
+		rc = camera_io_dev_write_continuous(
+			io_master_info, &(i2c_list->i2c_settings), 1);
+		if (rc < 0) {
+			CAM_ERR(CAM_SENSOR,
+				"Failed to burst write I2C settings: %d",
+				rc);
+			return rc;
+		}
+	break;
+	}
+	case CAM_SENSOR_I2C_POLL: {
+		size = i2c_list->i2c_settings.size;
+		for (i = 0; i < size; i++) {
+			rc = camera_io_dev_poll(
+			io_master_info,
+			i2c_list->i2c_settings.reg_setting[i].reg_addr,
+			i2c_list->i2c_settings.reg_setting[i].reg_data,
+			i2c_list->i2c_settings.reg_setting[i].data_mask,
+			i2c_list->i2c_settings.addr_type,
+			i2c_list->i2c_settings.data_type,
+			i2c_list->i2c_settings.reg_setting[i].delay);
+			if (rc < 0) {
+				CAM_ERR(CAM_SENSOR,
+					"i2c poll apply setting Fail: %d", rc);
+				return rc;
+			}
+		}
+	break;
+	}
+	default:
+		CAM_ERR(CAM_SENSOR, "Wrong Opcode: %d", i2c_list->op_code);
+		rc = -EINVAL;
+	break;
+	}
+
+	return rc;
+}
+
 int32_t msm_camera_fill_vreg_params(
 	struct cam_hw_soc_info *soc_info,
 	struct cam_sensor_power_setting *power_setting,
@@ -457,6 +526,8 @@ int32_t msm_camera_fill_vreg_params(
 	num_vreg = soc_info->num_rgltr;
 
 	if ((num_vreg <= 0) || (num_vreg > CAM_SOC_MAX_REGULATOR)) {
+		if(num_vreg <= 0)
+			return rc;
 		CAM_ERR(CAM_SENSOR, "failed: num_vreg %d", num_vreg);
 		return -EINVAL;
 	}
@@ -492,7 +563,13 @@ int32_t msm_camera_fill_vreg_params(
 				}
 			}
 			if (j == num_vreg)
+//HTC_START
+#if 0
+//HTC_END
 				power_setting[i].seq_val = INVALID_VREG;
+//HTC_START
+#endif
+//HTC_END
 			break;
 
 		case SENSOR_VIO:
@@ -517,7 +594,13 @@ int32_t msm_camera_fill_vreg_params(
 
 			}
 			if (j == num_vreg)
+//HTC_START
+#if 0
+//HTC_END
 				power_setting[i].seq_val = INVALID_VREG;
+//HTC_START
+#endif
+//HTC_END
 			break;
 
 		case SENSOR_VANA:
@@ -542,7 +625,13 @@ int32_t msm_camera_fill_vreg_params(
 
 			}
 			if (j == num_vreg)
+//HTC_START
+#if 0
+//HTC_END
 				power_setting[i].seq_val = INVALID_VREG;
+//HTC_START
+#endif
+//HTC_END
 			break;
 
 		case SENSOR_VAF:
@@ -568,7 +657,13 @@ int32_t msm_camera_fill_vreg_params(
 
 			}
 			if (j == num_vreg)
+//HTC_START
+#if 0
+//HTC_END
 				power_setting[i].seq_val = INVALID_VREG;
+//HTC_START
+#endif
+//HTC_END
 			break;
 
 		case SENSOR_CUSTOM_REG1:
@@ -593,7 +688,13 @@ int32_t msm_camera_fill_vreg_params(
 
 			}
 			if (j == num_vreg)
+//HTC_START
+#if 0
+//HTC_END
 				power_setting[i].seq_val = INVALID_VREG;
+//HTC_START
+#endif
+//HTC_END
 			break;
 		case SENSOR_CUSTOM_REG2:
 			for (j = 0; j < num_vreg; j++) {
@@ -616,7 +717,13 @@ int32_t msm_camera_fill_vreg_params(
 				}
 			}
 			if (j == num_vreg)
+//HTC_START
+#if 0
+//HTC_END
 				power_setting[i].seq_val = INVALID_VREG;
+//HTC_START
+#endif
+//HTC_END
 			break;
 		default:
 			break;
@@ -634,6 +741,10 @@ int cam_sensor_util_request_gpio_table(
 	struct cam_soc_gpio_data *gpio_conf =
 			soc_info->gpio_data;
 	struct gpio *gpio_tbl = NULL;
+	//HTC_START
+	static uint8_t gpio_1690_index = 0; //1690:CAM0_DRV
+	static uint8_t gpio_1694_index = 0; //1694:CAM_1V1_EN
+	//HTC_END
 
 	if (!gpio_conf) {
 		CAM_INFO(CAM_SENSOR, "No GPIO data");
@@ -661,6 +772,22 @@ int cam_sensor_util_request_gpio_table(
 
 	if (gpio_en) {
 		for (i = 0; i < size; i++) {
+			//HTC_START
+			if(gpio_tbl[i].gpio == 1690){
+				gpio_1690_index++;
+				if(gpio_1690_index > 1){
+					CAM_ERR(CAM_SENSOR, "already request gpio %d:%s", gpio_tbl[i].gpio, gpio_tbl[i].label);
+					continue;
+				}
+			}
+			if(gpio_tbl[i].gpio == 1694){
+				gpio_1694_index++;
+				if(gpio_1694_index > 1){
+					CAM_ERR(CAM_SENSOR, "already request gpio %d:%s", gpio_tbl[i].gpio, gpio_tbl[i].label);
+					continue;
+				}
+			}
+			//HTC_END
 			rc = cam_res_mgr_gpio_request(soc_info->dev,
 					gpio_tbl[i].gpio,
 					gpio_tbl[i].flags, gpio_tbl[i].label);
@@ -675,7 +802,30 @@ int cam_sensor_util_request_gpio_table(
 			}
 		}
 	} else {
+//HTC_START
+#if 0
+//HTC_END
 		cam_res_mgr_gpio_free_arry(soc_info->dev, gpio_tbl, size);
+//HTC_START
+#else
+		for (i = 0; i < size; i++) {
+			if(gpio_tbl[i].gpio == 1690) {
+				gpio_1690_index--;
+				if(gpio_1690_index != 0){
+					CAM_ERR(CAM_SENSOR, "still using gpio %d:%s ref:%u", gpio_tbl[i].gpio, gpio_tbl[i].label, gpio_1690_index);
+					continue;
+				}
+			} else if(gpio_tbl[i].gpio == 1694)	{
+				gpio_1694_index--;
+				if(gpio_1694_index != 0){
+					CAM_ERR(CAM_SENSOR, "still using gpio %d:%s ref:%u", gpio_tbl[i].gpio, gpio_tbl[i].label, gpio_1694_index);
+					continue;
+				}
+			}
+			gpio_free(gpio_tbl[i].gpio);
+		}
+#endif
+//HTC_END
 	}
 
 	return rc;
@@ -723,11 +873,20 @@ int32_t cam_sensor_update_power_settings(void *cmd_buf,
 			struct cam_cmd_power *pwr_cmd =
 				(struct cam_cmd_power *)ptr;
 
+			if ((U16_MAX - power_info->power_setting_size) <
+				pwr_cmd->count) {
+				CAM_ERR(CAM_SENSOR, "ERR: Overflow occurs");
+				rc = -EINVAL;
+				goto free_power_settings;
+			}
+
 			power_info->power_setting_size += pwr_cmd->count;
-			if (power_info->power_setting_size > MAX_POWER_CONFIG) {
+			if ((power_info->power_setting_size > MAX_POWER_CONFIG)
+				|| (pwr_cmd->count >= SENSOR_SEQ_TYPE_MAX)) {
 				CAM_ERR(CAM_SENSOR,
-					"Invalid: power up setting size %d",
-					power_info->power_setting_size);
+				"pwr_up setting size %d, pwr_cmd->count: %d",
+					power_info->power_setting_size,
+					pwr_cmd->count);
 				rc = -EINVAL;
 				goto free_power_settings;
 			}
@@ -822,12 +981,21 @@ int32_t cam_sensor_update_power_settings(void *cmd_buf,
 
 			scr = ptr + sizeof(struct cam_cmd_power);
 			tot_size = tot_size + sizeof(struct cam_cmd_power);
+			if ((U16_MAX - power_info->power_down_setting_size) <
+				pwr_cmd->count) {
+				CAM_ERR(CAM_SENSOR, "ERR: Overflow");
+				rc = -EINVAL;
+				goto free_power_settings;
+			}
+
 			power_info->power_down_setting_size += pwr_cmd->count;
-			if (power_info->power_down_setting_size >
-				MAX_POWER_CONFIG) {
+			if ((power_info->power_down_setting_size >
+				MAX_POWER_CONFIG) || (pwr_cmd->count >=
+				SENSOR_SEQ_TYPE_MAX)) {
 				CAM_ERR(CAM_SENSOR,
-					"Invalid: power down setting size %d",
-					power_info->power_down_setting_size);
+				"pwr_down_setting_size %d, pwr_cmd->count: %d",
+					power_info->power_down_setting_size,
+					pwr_cmd->count);
 				rc = -EINVAL;
 				goto free_power_settings;
 			}
@@ -1323,9 +1491,11 @@ static int cam_config_mclk_reg(struct cam_sensor_power_ctrl_t *ctrl,
 				ps->data[0] =
 					soc_info->rgltr[j];
 
+#if 0//htc for P bringup
 				regulator_put(
 					soc_info->rgltr[j]);
 				soc_info->rgltr[j] = NULL;
+#endif
 			}
 		}
 	}
@@ -1340,6 +1510,30 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 	int32_t vreg_idx = -1;
 	struct cam_sensor_power_setting *power_setting = NULL;
 	struct msm_camera_gpio_num_info *gpio_num_info = NULL;
+//HTC_START
+	struct device_node *of_node = soc_info->pdev->dev.of_node;
+	uint32_t cellindex = 5; //initialize as 5
+	if (0 > of_property_read_u32(of_node, "cell-index", &cellindex))
+		CAM_ERR(CAM_EEPROM, "failed to get cell-index from dsti");
+
+	if (of_device_is_compatible(of_node,
+		"qcom,eeprom") && cellindex == 0)
+	{
+		CAM_ERR(CAM_SENSOR, "Workaround for imx363 eeprom power up");
+
+		ctrl->power_setting[1].seq_type = ctrl->power_setting[0].seq_type;
+		ctrl->power_setting[1].seq_val = ctrl->power_setting[0].seq_val;
+		ctrl->power_setting[1].config_val = ctrl->power_setting[0].config_val;
+		ctrl->power_setting[1].delay = ctrl->power_setting[0].delay;
+		ctrl->power_setting[1].delay += 300;
+
+		ctrl->power_setting[0].seq_type = SENSOR_CUSTOM_GPIO2;
+		ctrl->power_setting[0].seq_val = 0;
+		ctrl->power_setting[0].config_val = 1;
+		ctrl->power_setting[0].delay = 1;
+		ctrl->power_setting_size = 2;
+	}
+//HTC_END
 
 	CAM_DBG(CAM_SENSOR, "Enter");
 	if (!ctrl) {
@@ -1351,6 +1545,8 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 	num_vreg = soc_info->num_rgltr;
 
 	if ((num_vreg <= 0) || (num_vreg > CAM_SOC_MAX_REGULATOR)) {
+		if(num_vreg <= 0)
+			return rc;
 		CAM_ERR(CAM_SENSOR, "failed: num_vreg %d", num_vreg);
 		return -EINVAL;
 	}
@@ -1710,13 +1906,44 @@ msm_camera_get_power_settings(struct cam_sensor_power_ctrl_t *ctrl,
 	return ps;
 }
 
-int msm_camera_power_down(struct cam_sensor_power_ctrl_t *ctrl,
+int cam_sensor_util_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 		struct cam_hw_soc_info *soc_info)
 {
 	int index = 0, ret = 0, num_vreg = 0, i;
 	struct cam_sensor_power_setting *pd = NULL;
 	struct cam_sensor_power_setting *ps = NULL;
 	struct msm_camera_gpio_num_info *gpio_num_info = NULL;
+//HTC_START
+	struct device_node *of_node = soc_info->pdev->dev.of_node;
+	uint32_t cellindex = 5; //initialize as 5
+	if (0 > of_property_read_u32(of_node, "cell-index", &cellindex))
+		CAM_ERR(CAM_EEPROM, "failed to get cell-index from dsti");
+
+	if (of_device_is_compatible(of_node,
+		"qcom,eeprom") && cellindex == 0)
+	{
+		struct device_node *of_node = soc_info->pdev->dev.of_node;
+		uint32_t cellindex = 5; //initialize as 5
+		if (0 > of_property_read_u32(of_node, "cell-index", &cellindex))
+		        CAM_ERR(CAM_EEPROM, "failed to get cell-index from dsti");
+		if (of_device_is_compatible(of_node,
+		        "qcom,eeprom") && cellindex == 0)
+		{
+			CAM_ERR(CAM_SENSOR, "Workaround for imx363 eeprom power down");
+			ctrl->power_down_setting[0].seq_type = SENSOR_VIO;
+			ctrl->power_down_setting[0].seq_val = 0;
+			ctrl->power_down_setting[0].config_val = 1;
+			ctrl->power_down_setting[0].delay = 1;
+
+			ctrl->power_down_setting[1].seq_type = SENSOR_CUSTOM_GPIO2;
+			ctrl->power_down_setting[1].seq_val = 0;
+			ctrl->power_down_setting[1].config_val = 1;
+			ctrl->power_down_setting[1].delay = 1;
+			ctrl->power_down_setting_size = 2;
+		}
+
+	}
+//HTC_END
 
 	CAM_DBG(CAM_SENSOR, "Enter");
 	if (!ctrl || !soc_info) {
@@ -1728,6 +1955,8 @@ int msm_camera_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 	num_vreg = soc_info->num_rgltr;
 
 	if ((num_vreg <= 0) || (num_vreg > CAM_SOC_MAX_REGULATOR)) {
+        if(num_vreg <= 0)
+            return 0;
 		CAM_ERR(CAM_SENSOR, "failed: num_vreg %d", num_vreg);
 		return -EINVAL;
 	}
@@ -1818,9 +2047,11 @@ int msm_camera_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 					ps->data[0] =
 						soc_info->rgltr[ps->seq_val];
 
+#if 0//htc for P bringup
 					regulator_put(
 						soc_info->rgltr[ps->seq_val]);
 					soc_info->rgltr[ps->seq_val] = NULL;
+#endif
 				}
 				else
 					CAM_ERR(CAM_SENSOR,

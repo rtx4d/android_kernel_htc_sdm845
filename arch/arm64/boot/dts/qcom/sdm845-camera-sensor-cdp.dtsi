@@ -72,9 +72,11 @@
 		regulator-max-microvolt = <1050000>;
 		regulator-enable-ramp-delay = <135>;
 		enable-active-high;
+/* HTC_AUD: gpio9 & gpio12 are used by audio
 		gpio = <&pm8998_gpios 12 0>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&camera_rear_dvdd_en_default>;
+*/
 		vin-supply = <&pm8998_s3>;
 	};
 
@@ -86,9 +88,11 @@
 		regulator-max-microvolt = <1050000>;
 		regulator-enable-ramp-delay = <233>;
 		enable-active-high;
+/* HTC_AUD: gpio9 & gpio12 are used by audio
 		gpio = <&pm8998_gpios 9 0>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&camera_dvdd_en_default>;
+*/
 		vin-supply = <&pm8998_s3>;
 	};
 };

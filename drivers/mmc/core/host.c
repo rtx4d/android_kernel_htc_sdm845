@@ -41,6 +41,8 @@
 static DEFINE_IDA(mmc_host_ida);
 static DEFINE_SPINLOCK(mmc_host_lock);
 
+extern struct workqueue_struct *stats_workqueue;
+
 static void mmc_host_classdev_release(struct device *dev)
 {
 	struct mmc_host *host = cls_dev_to_mmc_host(dev);
@@ -715,6 +717,7 @@ again:
 	spin_lock_init(&host->lock);
 	init_waitqueue_head(&host->wq);
 	INIT_DELAYED_WORK(&host->detect, mmc_rescan);
+	INIT_DELAYED_WORK(&host->stats_work, mmc_stats);
 	setup_timer(&host->retune_timer, mmc_retune_timer, (unsigned long)host);
 
 	mutex_init(&host->rpmb_req_mutex);
@@ -754,6 +757,9 @@ static ssize_t store_enable(struct device *dev,
 
 	if (!host || !host->card || kstrtoul(buf, 0, &value))
 		return -EINVAL;
+
+	if(!mmc_card_present(host->card))
+		return -ENOMEDIUM;
 
 	mmc_get_card(host->card);
 
@@ -919,6 +925,8 @@ set_perf(struct device *dev, struct device_attribute *attr,
 	unsigned long flags;
 
 	sscanf(buf, "%lld", &value);
+	host->debug_mask = value;
+	pr_info("%s: set debug 0x%llx\n", mmc_hostname(host), value);
 	spin_lock_irqsave(&host->lock, flags);
 	if (!value) {
 		memset(&host->perf, 0, sizeof(host->perf));

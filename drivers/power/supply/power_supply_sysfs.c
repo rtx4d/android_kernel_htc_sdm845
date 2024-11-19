@@ -83,6 +83,10 @@ static ssize_t power_supply_show_property(struct device *dev,
 	static const char * const typec_pr_text[] = {
 		"none", "dual power role", "sink", "source"
 	};
+
+	static char *ext_otg_control[] = {
+		"disable", "enable"
+	};
 	ssize_t ret = 0;
 	struct power_supply *psy = dev_get_drvdata(dev);
 	const ptrdiff_t off = attr - power_supply_attrs;
@@ -138,6 +142,14 @@ static ssize_t power_supply_show_property(struct device *dev,
 	else if (off == POWER_SUPPLY_PROP_CONNECTOR_HEALTH)
 		return scnprintf(buf, PAGE_SIZE, "%s\n",
 				health_text[value.intval]);
+#ifdef CONFIG_HTC_BATT
+	else if (off == POWER_SUPPLY_PROP_EXT_OTG_CHG_CONTROL)
+		return scnprintf(buf, PAGE_SIZE, "%s\n",
+				ext_otg_control[value.intval]);
+#endif // CONFIG_HTC_BATT
+	else if (off == POWER_SUPPLY_PROP_EXT_OTG_CONTROL)
+		return scnprintf(buf, PAGE_SIZE, "%s\n",
+				ext_otg_control[value.intval]);
 	else if (off >= POWER_SUPPLY_PROP_MODEL_NAME)
 		return scnprintf(buf, PAGE_SIZE, "%s\n",
 				value.strval);
@@ -319,6 +331,14 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(pd_voltage_max),
 	POWER_SUPPLY_ATTR(pd_voltage_min),
 	POWER_SUPPLY_ATTR(sdp_current_max),
+#ifdef CONFIG_HTC_BATT
+	POWER_SUPPLY_ATTR(htcchg_chg_en),
+	POWER_SUPPLY_ATTR(htcchg_isen),
+	POWER_SUPPLY_ATTR(htcchg_adc),
+	POWER_SUPPLY_ATTR(htcchg_ready),
+	POWER_SUPPLY_ATTR(usb_conn_temp),
+	POWER_SUPPLY_ATTR(ext_otg_chg_control),
+#endif //CONFIG_HTC_BATT
 	POWER_SUPPLY_ATTR(connector_type),
 	POWER_SUPPLY_ATTR(parallel_batfet_mode),
 	POWER_SUPPLY_ATTR(parallel_fcc_max),
@@ -348,6 +368,7 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(serial_number),
 	POWER_SUPPLY_ATTR(battery_type),
 	POWER_SUPPLY_ATTR(cycle_counts),
+	POWER_SUPPLY_ATTR(ext_otg_control),
 };
 
 static struct attribute *

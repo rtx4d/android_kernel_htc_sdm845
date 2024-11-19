@@ -90,6 +90,7 @@ struct dp_display_private {
 	struct work_struct attention_work;
 	struct mutex hdcp_mutex;
 	struct mutex session_lock;
+	int hdcp_status;
 	unsigned long audio_status;
 };
 
@@ -700,6 +701,7 @@ static int dp_display_usbpd_disconnect_cb(struct device *dev)
 	flush_workqueue(dp->wq);
 
 	dp_display_handle_disconnect(dp);
+	atomic_set(&dp->aborted, 0);
 end:
 	return rc;
 }

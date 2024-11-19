@@ -1353,6 +1353,14 @@ static int ufs_qcom_pwr_change_notify(struct ufs_hba *hba,
 	case PRE_CHANGE:
 		ufs_qcom_cap.tx_lanes = UFS_QCOM_LIMIT_NUM_LANES_TX;
 		ufs_qcom_cap.rx_lanes = UFS_QCOM_LIMIT_NUM_LANES_RX;
+		if (hba->sdev_ufs_device) {
+			if (hba->sdev_ufs_device->vendor) {
+				if (strnstr(hba->sdev_ufs_device->vendor, "SK", 2)) {
+					ufs_qcom_cap.tx_lanes  = 1;
+					ufs_qcom_cap.rx_lanes = 1;
+				}
+			}
+		}
 		ufs_qcom_cap.hs_rx_gear = UFS_QCOM_LIMIT_HSGEAR_RX;
 		ufs_qcom_cap.hs_tx_gear = UFS_QCOM_LIMIT_HSGEAR_TX;
 		ufs_qcom_cap.pwm_rx_gear = UFS_QCOM_LIMIT_PWMGEAR_RX;
@@ -1516,7 +1524,9 @@ static void ufs_qcom_set_caps(struct ufs_hba *hba)
 	if (!host->disable_lpm) {
 		hba->caps |= UFSHCD_CAP_CLK_GATING;
 		hba->caps |= UFSHCD_CAP_HIBERN8_WITH_CLK_GATING;
+#if 0
 		hba->caps |= UFSHCD_CAP_CLK_SCALING;
+#endif
 	}
 	hba->caps |= UFSHCD_CAP_AUTO_BKOPS_SUSPEND;
 

@@ -719,6 +719,9 @@ static int __dwc3_gadget_ep_enable(struct dwc3_ep *dep,
 		reg |= DWC3_DALEPENA_EP(dep->number);
 		dwc3_writel(dwc->regs, DWC3_DALEPENA, reg);
 
+		if (dep->endpoint.is_ncm)
+			dwc3_gadget_resize_tx_fifos(dwc, dep);
+
 		if (usb_endpoint_xfer_control(desc))
 			return 0;
 
@@ -1038,12 +1041,22 @@ static void dwc3_prepare_one_trb(struct dwc3_ep *dep,
 	if (chain)
 		trb->ctrl |= DWC3_TRB_CTRL_CHN;
 
+	if (dep->endpoint.is_ncm)
+		trb->ctrl |= DWC3_TRB_CTRL_CSP;
+
 	if (usb_endpoint_xfer_bulk(dep->endpoint.desc) && dep->stream_capable)
 		trb->ctrl |= DWC3_TRB_CTRL_SID_SOFN(req->request.stream_id);
 
 	trb->ctrl |= DWC3_TRB_CTRL_HWO;
 
 	trace_dwc3_prepare_trb(dep, trb);
+	if (!usb_endpoint_xfer_isoc(dep->endpoint.desc)) {
+		if (dwc3_calc_trbs_left(dep) == 0)
+			trb->ctrl |= DWC3_TRB_CTRL_LST;
+		else if (dep->endpoint.is_ncm && !req->request.no_interrupt &&
+				dep->direction != 1)
+			trb->ctrl |= DWC3_TRB_CTRL_IOC;
+	}
 }
 
 /**
@@ -3545,6 +3558,8 @@ static void dwc3_gadget_interrupt(struct dwc3 *dwc,
 	case DWC3_DEVICE_EVENT_RESET:
 		dwc3_gadget_reset_interrupt(dwc);
 		dwc->dbg_gadget_events.reset++;
+		if (dwc->usb_disable)
+			dwc->notify_usb_disabled();
 		break;
 	case DWC3_DEVICE_EVENT_CONNECT_DONE:
 		dwc3_gadget_conndone_interrupt(dwc);

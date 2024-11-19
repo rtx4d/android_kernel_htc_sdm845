@@ -156,6 +156,27 @@ void __wake_up_sync(wait_queue_head_t *q, unsigned int mode, int nr_exclusive)
 }
 EXPORT_SYMBOL_GPL(__wake_up_sync);	/* For internal use only */
 
+
+void __wake_up_sync_locked_key(wait_queue_head_t *q, unsigned int mode,
+			int nr_exclusive, void *key)
+{
+	int wake_flags = 1; /* XXX WF_SYNC */
+
+	if (unlikely(!q))
+		return;
+
+	if (unlikely(nr_exclusive != 1))
+		wake_flags = 0;
+
+	__wake_up_common(q, mode, nr_exclusive, wake_flags, key);
+}
+
+void __wake_up_sync_locked(wait_queue_head_t *q, unsigned int mode, int nr_exclusive)
+{
+	__wake_up_sync_locked_key(q, mode, nr_exclusive, NULL);
+}
+EXPORT_SYMBOL_GPL(__wake_up_sync_locked);
+
 /*
  * Note: we use "set_current_state()" _after_ the wait-queue add,
  * because we need a memory barrier there on SMP, so that any

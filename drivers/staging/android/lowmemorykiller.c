@@ -147,6 +147,10 @@ static int adjust_minadj(short *min_score_adj)
 			ret = VMPRESSURE_ADJUST_ENCROACH;
 		else
 			ret = VMPRESSURE_ADJUST_NORMAL;
+
+		lowmem_print(1, "Pressure high, adjust minadj from %d to %d\n",
+			*min_score_adj, adj_max_shift);
+
 		*min_score_adj = adj_max_shift;
 	}
 	atomic_set(&shift_adj, 0);
@@ -571,6 +575,7 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 			     p->comm, p->pid, oom_score_adj, tasksize);
 	}
 	if (selected) {
+		bool should_dump_meminfo = false;
 		long cache_size = other_file * (long)(PAGE_SIZE / 1024);
 		long cache_limit = minfree * (long)(PAGE_SIZE / 1024);
 		long free = other_free * (long)(PAGE_SIZE / 1024);
@@ -622,6 +627,9 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 			(long)(PAGE_SIZE / 1024),
 			sc->gfp_mask);
 
+		if (selected->signal->oom_score_adj < 700)
+			should_dump_meminfo = true;
+
 		if (lowmem_debug_level >= 2 && selected_oom_score_adj == 0) {
 			show_mem(SHOW_MEM_FILTER_NODES);
 			show_mem_call_notifiers();
@@ -631,6 +639,18 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		lowmem_deathpending_timeout = jiffies + HZ;
 		rem += selected_tasksize;
 		rcu_read_unlock();
+
+		if (should_dump_meminfo)
+			lowmem_print(1, "killing process of adj less than 7 \n" \
+					"   NR_FILE_PAGES = %ld \n" \
+					"   NR_SHMEM = %ld \n" \
+					"   NR_UNEVICTABLE = %ld \n" \
+					"   total_swapcache_pages = %ld \n",
+					global_node_page_state(NR_FILE_PAGES),
+					global_node_page_state(NR_SHMEM),
+					global_node_page_state(NR_UNEVICTABLE),
+					total_swapcache_pages());
+
 		/* give the system time to free up the memory */
 		msleep_interruptible(20);
 		trace_almk_shrink(selected_tasksize, ret,

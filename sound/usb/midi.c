@@ -2223,7 +2223,13 @@ static int snd_usbmidi_create_rawmidi(struct snd_usb_midi *umidi,
 			      out_ports, in_ports, &rmidi);
 	if (err < 0)
 		return err;
+/* HTC_AUD_START */
+#if 0
 	strcpy(rmidi->name, umidi->card->shortname);
+#else
+	strlcpy(rmidi->name, umidi->card->shortname, sizeof(rmidi->name));
+#endif
+/* HTC_AUD_END */
 	rmidi->info_flags = SNDRV_RAWMIDI_INFO_OUTPUT |
 			    SNDRV_RAWMIDI_INFO_INPUT |
 			    SNDRV_RAWMIDI_INFO_DUPLEX;

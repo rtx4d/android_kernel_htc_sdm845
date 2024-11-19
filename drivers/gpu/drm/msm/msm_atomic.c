@@ -24,6 +24,7 @@
 #include "msm_gem.h"
 #include "msm_fence.h"
 #include "sde_trace.h"
+#include "sde_connector.h"
 
 #define MULTIPLE_CONN_DETECTED(x) (x > 1)
 
@@ -34,6 +35,8 @@ struct msm_commit {
 	bool nonblock;
 	struct kthread_work commit_work;
 };
+
+extern int  is_lp1_mode;
 
 static BLOCKING_NOTIFIER_HEAD(msm_drm_notifier_list);
 
@@ -70,7 +73,7 @@ int msm_drm_unregister_client(struct notifier_block *nb)
  * @v: notifier data, inculde display id and display blank
  *     event(unblank or power down).
  */
-static int msm_drm_notifier_call_chain(unsigned long val, void *v)
+int msm_drm_notifier_call_chain(unsigned long val, void *v)
 {
 	return blocking_notifier_call_chain(&msm_drm_notifier_list, val,
 					    v);
@@ -212,6 +215,7 @@ msm_disable_outputs(struct drm_device *dev, struct drm_atomic_state *old_state)
 		struct drm_encoder *encoder;
 		struct drm_crtc_state *old_crtc_state;
 		unsigned int crtc_idx;
+		int lp_mode;
 
 		/*
 		 * Shut down everything that's in the changeset and currently
@@ -244,7 +248,9 @@ msm_disable_outputs(struct drm_device *dev, struct drm_atomic_state *old_state)
 		DRM_DEBUG_ATOMIC("disabling [ENCODER:%d:%s]\n",
 				 encoder->base.id, encoder->name);
 
-		blank = MSM_DRM_BLANK_POWERDOWN;
+		lp_mode = sde_connector_get_property(
+				connector->state, CONNECTOR_PROP_LP);
+		blank = (lp_mode == SDE_MODE_DPMS_LP2)? MSM_DRM_BLANK_SUSPEND : MSM_DRM_BLANK_POWERDOWN;
 		notifier_data.data = &blank;
 		notifier_data.id = crtc_idx;
 		msm_drm_notifier_call_chain(MSM_DRM_EARLY_EVENT_BLANK,
@@ -444,6 +450,7 @@ static void msm_atomic_helper_commit_modeset_enables(struct drm_device *dev,
 	for_each_connector_in_state(old_state, connector, old_conn_state, i) {
 		const struct drm_encoder_helper_funcs *funcs;
 		struct drm_encoder *encoder;
+		int lp_mode;
 
 		if (!connector->state->best_encoder)
 			continue;
@@ -463,7 +470,9 @@ static void msm_atomic_helper_commit_modeset_enables(struct drm_device *dev,
 				 encoder->base.id, encoder->name);
 
 		if (connector->state->crtc->state->active_changed) {
-			blank = MSM_DRM_BLANK_UNBLANK;
+			lp_mode = sde_connector_get_property(
+				connector->state, CONNECTOR_PROP_LP);
+		            blank = (lp_mode == SDE_MODE_DPMS_LP1)? MSM_DRM_BLANK_STANDBY : MSM_DRM_BLANK_UNBLANK;
 			notifier_data.data = &blank;
 			notifier_data.id =
 				connector->state->crtc->index;
@@ -497,6 +506,7 @@ static void msm_atomic_helper_commit_modeset_enables(struct drm_device *dev,
 
 	for_each_connector_in_state(old_state, connector, old_conn_state, i) {
 		struct drm_encoder *encoder;
+		int lp_mode;
 
 		if (!connector->state->best_encoder)
 			continue;
@@ -515,7 +525,12 @@ static void msm_atomic_helper_commit_modeset_enables(struct drm_device *dev,
 				 encoder->base.id, encoder->name);
 
 		drm_bridge_enable(encoder->bridge);
+
 		if (connector->state->crtc->state->active_changed) {
+		      lp_mode = sde_connector_get_property(
+				connector->state, CONNECTOR_PROP_LP);
+		      blank = ((lp_mode == SDE_MODE_DPMS_LP1)&&is_lp1_mode)? MSM_DRM_BLANK_STANDBY : MSM_DRM_BLANK_UNBLANK;
+		      printk("blank is %d \n",blank);
 			DRM_DEBUG_ATOMIC("Notify unblank\n");
 			msm_drm_notifier_call_chain(MSM_DRM_EVENT_BLANK,
 					    &notifier_data);

@@ -1651,7 +1651,10 @@ static __latent_entropy struct task_struct *copy_process(
 #endif
 
 #ifdef CONFIG_DEBUG_MUTEXES
-	p->blocked_on = NULL; /* not blocked yet */
+	/* not blocked yet */
+	p->blocked_on = NULL;
+	p->blocked_by = NULL;
+	p->blocked_since = 0;
 #endif
 #ifdef CONFIG_BCACHE
 	p->sequential_io	= 0;
@@ -1926,7 +1929,7 @@ struct task_struct *fork_idle(int cpu)
 			    cpu_to_node(cpu));
 	if (!IS_ERR(task)) {
 		init_idle_pids(task->pids);
-		init_idle(task, cpu, false);
+		init_idle(task, cpu);
 	}
 
 	return task;

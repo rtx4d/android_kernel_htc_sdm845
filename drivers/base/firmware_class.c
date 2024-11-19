@@ -1159,6 +1159,12 @@ _request_firmware(const struct firmware **firmware_p, const char *name,
 
 	ret = 0;
 	timeout = firmware_loading_timeout();
+
+	/* Modem_BSP++ */
+	if ( loading_timeout > 0 && !strncmp(name, "msadp", 5))
+		timeout = 1 * HZ; // 1s
+	/* Modem_BSP-- */
+
 	if (opt_flags & FW_OPT_NOWAIT) {
 		timeout = usermodehelper_read_lock_wait(timeout);
 		if (!timeout) {

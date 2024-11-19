@@ -118,8 +118,10 @@ static int dp_power_pinctrl_set(struct dp_power_private *power, bool active)
 
 	parser = power->parser;
 
-	if (IS_ERR_OR_NULL(parser->pinctrl.pin))
-		return PTR_ERR(parser->pinctrl.pin);
+	if (IS_ERR_OR_NULL(parser->pinctrl.pin)) {
+		pr_warn("failed to get pinctrl, rc=%ld\n", PTR_ERR(parser->pinctrl.pin));
+		return 0;
+	}
 
 	pin_state = active ? parser->pinctrl.state_active
 				: parser->pinctrl.state_suspend;
@@ -131,9 +133,10 @@ static int dp_power_pinctrl_set(struct dp_power_private *power, bool active)
 			       active ? "dp_active"
 			       : "dp_sleep");
 	} else {
-		pr_err("invalid '%s' pinstate\n",
+		pr_warn("invalid '%s' pinstate\n",
 		       active ? "dp_active"
 		       : "dp_sleep");
+		return 0;
 	}
 
 	return rc;
@@ -402,8 +405,10 @@ static int dp_power_config_gpios(struct dp_power_private *power, bool flip,
 		dp_power_set_gpio(power, flip);
 	} else {
 		for (i = 0; i < mp->num_gpio; i++) {
-			gpio_set_value(config[i].gpio, 0);
-			gpio_free(config[i].gpio);
+			if (gpio_is_valid(config[i].gpio)) {
+				gpio_set_value(config[i].gpio, 0);
+				gpio_free(config[i].gpio);
+			}
 		}
 	}
 

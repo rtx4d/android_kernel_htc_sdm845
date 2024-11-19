@@ -8,3 +8,6 @@ obj-$(CONFIG_SPECTRA_CAMERA) += cam_sensor/
 obj-$(CONFIG_SPECTRA_CAMERA) += cam_flash/
 obj-$(CONFIG_SPECTRA_CAMERA) += cam_eeprom/
 obj-$(CONFIG_SPECTRA_CAMERA) += cam_ois/
+#HTC_START
+obj-$(CONFIG_SPECTRA_CAMERA) += lc898123F40_htc/
+#HTC_END

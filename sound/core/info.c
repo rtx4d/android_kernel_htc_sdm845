@@ -527,7 +527,13 @@ int snd_info_card_create(struct snd_card *card)
 	if (snd_BUG_ON(!card))
 		return -ENXIO;
 
+/* HTC_AUD_START HPKB:6797 Klocwork */
+#if 0
 	sprintf(str, "card%i", card->number);
+#else
+	snprintf(str, sizeof(str), "card%i", card->number);
+#endif
+/* HTC_AUD_END */
 	entry = snd_info_create_subdir(card->module, str, NULL);
 	if (!entry)
 		return -ENOMEM;

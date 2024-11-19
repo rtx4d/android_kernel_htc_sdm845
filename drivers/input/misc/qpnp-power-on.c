@@ -34,6 +34,9 @@
 #include <linux/qpnp/qpnp-pbs.h>
 #include <linux/qpnp/qpnp-misc.h>
 #include <linux/power_supply.h>
+#include <../../power/reset/htc_restart_handler.h>
+
+#include <linux/htc_flags.h>
 
 #define PMIC_VER_8941           0x01
 #define PMIC_VERSION_REG        0x0105
@@ -987,6 +990,7 @@ qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 			pon->kpdpwr_last_release_time = ktime_get();
 	}
 
+#ifdef CONFIG_QPNP_KEY_INPUT
 	/*
 	 * simulate press event in case release event occurred
 	 * without a press event
@@ -998,6 +1002,7 @@ qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 
 	input_report_key(pon->pon_input, cfg->key_code, key_status);
 	input_sync(pon->pon_input);
+#endif
 
 	cfg->old_state = !!key_status;
 
@@ -1018,6 +1023,8 @@ static irqreturn_t qpnp_kpdpwr_irq(int irq, void *_pon)
 
 static irqreturn_t qpnp_kpdpwr_bark_irq(int irq, void *_pon)
 {
+	pr_info("Long press power key: kpdpwer bark\r\n");
+	set_restart_action(RESTART_REASON_RAMDUMP, "PowerKey Hard Reset");
 	return IRQ_HANDLED;
 }
 
@@ -1034,6 +1041,8 @@ static irqreturn_t qpnp_resin_irq(int irq, void *_pon)
 
 static irqreturn_t qpnp_kpdpwr_resin_bark_irq(int irq, void *_pon)
 {
+	pr_info("Long press power key: kpdpwer+resin bark\r\n");
+	set_restart_action(RESTART_REASON_RAMDUMP, "PowerKey Hard Reset");
 	return IRQ_HANDLED;
 }
 
@@ -1133,9 +1142,11 @@ static void bark_work_func(struct work_struct *work)
 	}
 
 	if (!(pon_rt_sts & QPNP_PON_RESIN_BARK_N_SET)) {
+#ifdef CONFIG_QPNP_KEY_INPUT
 		/* report the key event and enable the bark IRQ */
 		input_report_key(pon->pon_input, cfg->key_code, 0);
 		input_sync(pon->pon_input);
+#endif
 		enable_irq(cfg->bark_irq);
 	} else {
 		/* disable reset */
@@ -1657,6 +1668,9 @@ static int qpnp_pon_config_init(struct qpnp_pon *pon)
 			}
 			rc = of_property_read_u32(pp, "qcom,s2-type",
 							&cfg->s2_type);
+			if (get_radio_flag() & BIT(3))
+				cfg->s2_type = 1; /* 0x1: WARM_RESET */
+
 			if (rc) {
 				dev_err(&pon->pdev->dev,
 					"Unable to read s2-type\n");
@@ -2148,6 +2162,53 @@ static int pon_register_twm_notifier(struct qpnp_pon *pon)
 
 	return rc;
 }
+#ifdef CONFIG_HTC_POWER_DEBUG
+int htc_pon_trigger_reason = -1;
+int htc_pon_power_off_reason = -1;
+int htc_warm_reset_reason1 = -1;
+
+/*Maximum PMIC nums are three*/
+#define HTC_MSM_PMIC_NUMS 3
+#define HTC_DUMP_PMIC_REG_NUMS 12
+#define PM_STATUS_MSG_LEN 300
+static int pmic_init_seq = 0;
+static char reg_dump_str[PM_STATUS_MSG_LEN] = {0};
+
+void htc_print_pon_boot_reason(void)
+{
+	/* PON_PON_REASON */
+	printk(KERN_INFO "PM8998 PON_PON_REASON:\n");
+	printk(KERN_INFO "%s\n",qpnp_pon_reason[htc_pon_trigger_reason]);
+
+	/* PON_WARM_RESET_REASON */
+	if(htc_warm_reset_reason1 >= 0){
+		printk(KERN_INFO "PM8998 PON_WARM_RESET_REASON:\n");
+		printk(KERN_INFO "%s\n",qpnp_poff_reason[htc_warm_reset_reason1]);
+	}
+
+	/* PON_POFF_REASON1 */
+	if(htc_pon_power_off_reason >= 0){
+		printk(KERN_INFO "PM8998 PON_POFF_REASON:\n");
+		printk(KERN_INFO "%s\n",qpnp_poff_reason[htc_pon_power_off_reason]);
+	}
+
+	/* Register dump from 0x8C0 to 0x8CB */
+	printk(KERN_INFO "PON_POFF register dump: %s\n", reg_dump_str);
+}
+EXPORT_SYMBOL_GPL(htc_print_pon_boot_reason);
+
+int htc_get_pon_reason(void)
+{
+    return htc_pon_trigger_reason;
+}
+EXPORT_SYMBOL_GPL(htc_get_pon_reason);
+
+int htc_get_poff_reason(void)
+{
+    return htc_pon_power_off_reason;
+}
+EXPORT_SYMBOL_GPL(htc_get_poff_reason);
+#endif
 
 static int qpnp_pon_probe(struct platform_device *pdev)
 {
@@ -2164,6 +2225,13 @@ static int qpnp_pon_probe(struct platform_device *pdev)
 	u8 s3_src_reg;
 	unsigned long flags;
 	uint temp = 0;
+#ifdef CONFIG_HTC_POWER_DEBUG
+	int idx = 0;
+	static int msg_len = 0;
+	static u8 reg_buf[HTC_MSM_PMIC_NUMS][HTC_DUMP_PMIC_REG_NUMS];
+	static bool is_first = true;
+	int reg = 0;
+#endif
 
 	pon = devm_kzalloc(&pdev->dev, sizeof(struct qpnp_pon), GFP_KERNEL);
 	if (!pon)
@@ -2607,6 +2675,51 @@ static int qpnp_pon_probe(struct platform_device *pdev)
 					"qcom,use-legacy-hard-reset-offset");
 
 	qpnp_pon_debugfs_init(pdev);
+#ifdef CONFIG_HTC_POWER_DEBUG
+	if(to_spmi_device(pon->pdev->dev.parent)->usid ==0){
+		htc_pon_trigger_reason = pon->pon_trigger_reason;
+		htc_pon_power_off_reason = pon->pon_power_off_reason;
+		htc_warm_reset_reason1 = ffs((int)pon->warm_reset_reason1) -1;
+	}
+
+	/*Record S3_RESET_REASON*/
+	regmap_read(pon->regmap, QPNP_S3_RESET_REASON(pon), &reg);
+
+	/*Clear S3_RESET_REASON*/
+	regmap_write(pon->regmap, QPNP_S3_RESET_REASON(pon), 0xFF);
+	/*Need to wait 5 sleep clk cycles, i.e 152us*/
+	msleep(1);
+	printk(KERN_INFO "Clear and Record PON S3_RESET_REASON\n");
+
+	/*Maximum PMIC nums are three*/
+	if(pmic_init_seq < HTC_MSM_PMIC_NUMS) {
+		regmap_bulk_read(pon->regmap, QPNP_PON_REASON1(pon),
+				reg_buf[pmic_init_seq], HTC_DUMP_PMIC_REG_NUMS);
+
+		if (is_first) {
+			msg_len = snprintf(reg_dump_str + msg_len,
+				sizeof(reg_dump_str), "PM%d:", pmic_init_seq);
+			is_first = false;
+		} else
+			msg_len += snprintf(reg_dump_str + msg_len,
+				sizeof(reg_dump_str) - msg_len, "PM%d:", pmic_init_seq);
+
+		for (idx = 0; idx < HTC_DUMP_PMIC_REG_NUMS; idx++) {
+			if (msg_len > ARRAY_SIZE(reg_dump_str) - 1)
+				printk(KERN_INFO "debug msg_len:%d over size\n", msg_len);
+			else
+				msg_len += snprintf(reg_dump_str + msg_len,
+					sizeof(reg_dump_str) - msg_len, " %X",
+					reg_buf[pmic_init_seq][idx]);
+		}
+
+		msg_len += snprintf(reg_dump_str + msg_len,
+				sizeof(reg_dump_str) - msg_len, " saved_S3_reset: %X", reg);
+		msg_len += snprintf(reg_dump_str + msg_len,
+				sizeof(reg_dump_str) - msg_len, "; ");
+		pmic_init_seq++;
+	}
+#endif
 	return 0;
 
 err_out:

@@ -1170,6 +1170,8 @@ struct dwc3 {
 	void			*dwc_ipc_log_ctxt;
 	int			last_fifo_depth;
 	struct dwc3_gadget_events	dbg_gadget_events;
+	bool			usb_disable;
+	void			(*notify_usb_disabled)(void);
 	bool			create_reg_debugfs;
 	u32			xhci_imod_value;
 	int			core_id;

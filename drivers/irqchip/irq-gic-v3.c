@@ -44,6 +44,10 @@
 
 #include "irq-gic-common.h"
 
+#ifdef CONFIG_HTC_DEBUG_WATCHDOG
+#include <linux/htc_debug_tools.h>
+#endif
+
 #define MAX_IRQ			1020U	/* Max number of SGI+PPI+SPI */
 #define SPI_START_IRQ		32	/* SPI start irq number */
 #define GICD_ICFGR_BITS		2	/* 2 bits per irq in GICD_ICFGR */
@@ -774,6 +778,13 @@ static asmlinkage void __exception_irq_entry gic_handle_irq(struct pt_regs *regs
 		if (likely(irqnr > 15 && irqnr < 1020) || irqnr >= 8192) {
 			int err;
 
+#if defined(CONFIG_HTC_DEBUG_WATCHDOG)
+                       /* only check on timer interrupt */
+                       if (irqnr == 19 && smp_processor_id() == 0) {
+                               unsigned long long timestamp = sched_clock();
+                               htc_debug_watchdog_check_pet(timestamp);
+                       }
+#endif /* CONFIG_HTC_DEBUG_WATCHDOG */
 			uncached_logk(LOGK_IRQ, (void *)(uintptr_t)irqnr);
 			if (static_key_true(&supports_deactivate))
 				gic_write_eoir(irqnr);

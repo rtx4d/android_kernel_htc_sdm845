@@ -27,6 +27,9 @@
 #include <linux/mmc/ring_buffer.h>
 
 #define MMC_AUTOSUSPEND_DELAY_MS	3000
+#define MMC_STATS_INTERVAL		5000	/* 5 secs */
+#define MMC_STATS_LOG_INTERVAL		60000	/* 60 secs */
+extern struct workqueue_struct *stats_workqueue;
 
 struct mmc_ios {
 	unsigned int	clock;			/* clock rate */
@@ -400,6 +403,10 @@ struct mmc_host {
 #ifdef CONFIG_PM_SLEEP
 	struct notifier_block	pm_notify;
 #endif
+#define MMC_DEBUG_MEMORY	0x01
+#define MMC_DEBUG_FREE_SPACE	0x02
+#define MMC_DEBUG_RANDOM_RW	0x04
+	unsigned int            debug_mask;
 	u32			max_current_330;
 	u32			max_current_300;
 	u32			max_current_180;
@@ -553,6 +560,8 @@ struct mmc_host {
 	int			claim_cnt;	/* "claim" nesting count */
 
 	struct delayed_work	detect;
+	struct delayed_work	enable_detect;
+	struct delayed_work	stats_work;
 	int			detect_change;	/* card detect flag */
 	struct mmc_slot		slot;
 
@@ -625,17 +634,39 @@ struct mmc_host {
 	struct extcon_dev	*extcon;
 	struct notifier_block card_detect_nb;
 
-#ifdef CONFIG_MMC_PERF_PROFILING
 	struct {
 
 		unsigned long rbytes_drv;  /* Rd bytes MMC Host  */
 		unsigned long wbytes_drv;  /* Wr bytes MMC Host  */
 		ktime_t rtime_drv;	   /* Rd time  MMC Host  */
 		ktime_t wtime_drv;	   /* Wr time  MMC Host  */
+
+		unsigned long rcount;		/* Rd req count */
+		unsigned long wcount;		/* Wr req count */
+
+		/* random r/w */
+		unsigned long rbytes_drv_rand;	/* Rd bytes MMC Host  */
+		unsigned long wbytes_drv_rand;	/* Wr bytes MMC Host  */
+		unsigned long rcount_rand;	/* Rd req count */
+		unsigned long wcount_rand;	/* Wr req count */
+		ktime_t rtime_drv_rand;		/* Rd time  MMC Host  */
+		ktime_t wtime_drv_rand;		/* Wr time  MMC Host  */
+		unsigned long wbytes_low_perf;
+		unsigned long wtime_low_perf;
+		unsigned long lp_duration;	/* low performance duration */
+
+		/* erase command */
+		unsigned long erase_rq;		/* erase req count */
+		unsigned long erase_blks;	/* total erase blocks */
+		ktime_t erase_time;		/* total erase time */
+
+		/* workload */
+		unsigned long wkbytes_drv;
+		ktime_t workload_time;
+
 		ktime_t start;
 	} perf;
 	bool perf_enable;
-#endif
 	struct mmc_trace_buffer trace_buf;
 	enum dev_state dev_status;
 	bool			wakeup_on_idle;

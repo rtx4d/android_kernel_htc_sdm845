@@ -662,6 +662,7 @@ static int geni_i2c_xfer(struct i2c_adapter *adap,
 	qcom_geni_i2c_conf(gi2c, 0);
 	dev_dbg(gi2c->dev, "i2c xfer:num:%d, msgs:len:%d,flg:%d\n",
 				num, msgs[0].len, msgs[0].flags);
+	ret = 0; // HTC_AUD
 	for (i = 0; i < num; i++) {
 		int stretch = (i < (num - 1));
 		u32 m_param = 0;
@@ -910,7 +911,8 @@ static int geni_i2c_probe(struct platform_device *pdev)
 	pm_runtime_enable(gi2c->dev);
 	i2c_add_adapter(&gi2c->adap);
 
-	dev_dbg(gi2c->dev, "I2C probed\n");
+	dev_info(gi2c->dev, "i2c-%d probe success\n", gi2c->adap.nr);
+
 	return 0;
 }
 

@@ -747,7 +747,11 @@ out:
 }
 
 #define MEM_GNT_WAIT_TIME_US	10000
+#ifdef CONFIG_HTC_BATT
+#define MEM_GNT_RETRIES		100
+#else
 #define MEM_GNT_RETRIES		50
+#endif
 static int fg_direct_mem_request(struct fg_chip *chip, bool request)
 {
 	int rc, ret, i = 0;

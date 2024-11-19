@@ -176,6 +176,14 @@ int msm_ion_do_cache_offset_op(
 
 bool is_buffer_hlos_assigned(struct ion_buffer *buffer);
 
+/*
+ * msm_ion_heap_meminfo - Calculate meminfo in ion heap.
+ *
+ * @is_total - Calculate total memory usage or in used only
+ *
+ * Returns memory usage in specified heaps and usages
+ */
+uintptr_t msm_ion_heap_meminfo(const bool is_total);
 #else
 static inline struct ion_client *msm_ion_client_create(const char *name)
 {
@@ -207,6 +215,11 @@ int msm_ion_do_cache_offset_op(
 static bool is_buffer_hlos_assigned(struct ion_buffer *buffer)
 {
 	return true;
+}
+
+static inline uintptr_t msm_ion_heap_meminfo(const bool is_total)
+{
+	return 0;
 }
 #endif /* CONFIG_ION */
 

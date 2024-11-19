@@ -961,7 +961,21 @@ static int snd_ctl_elem_write(struct snd_card *card, struct snd_ctl_file *file,
 		    kctl->put == NULL ||
 		    (file && vd->owner && vd->owner != file)) {
 			result = -EPERM;
+/* HTC_AUD_START HPKB:28982 */
+#ifdef CONFIG_HTC_DEBUG_DSP
+			pr_err("%s: kctl invalid: %d\n", __func__, control->id.numid);
+#endif
+/* HTC_AUD_END */
 		} else {
+/* HTC_AUD_START HPKB:28982 */
+#ifdef CONFIG_HTC_DEBUG_DSP
+			pr_info("%s: control %i:%s value:%ld \n",
+					__func__,
+					kctl->id.numid,
+					kctl->id.name,
+					control->value.integer.value[0]);
+#endif
+/* HTC_AUD_END */
 			snd_ctl_build_ioff(&control->id, kctl, index_offset);
 			result = kctl->put(kctl, control);
 		}

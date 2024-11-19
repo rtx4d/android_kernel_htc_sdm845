@@ -152,6 +152,7 @@ struct qusb_phy {
 	int			phy_pll_reset_seq_len;
 	int			*emu_dcm_reset_seq;
 	int			emu_dcm_reset_seq_len;
+	bool			skip_efuse_reg;
 
 	/* override TUNEX registers value */
 	struct dentry		*root;
@@ -614,7 +615,7 @@ static int qusb_phy_init(struct usb_phy *phy)
 	if (qphy->qusb_phy_init_seq)
 		qusb_phy_write_seq(qphy->base, qphy->qusb_phy_init_seq,
 				qphy->init_seq_len, 0);
-	if (qphy->efuse_reg) {
+	if (!qphy->skip_efuse_reg && qphy->efuse_reg) {
 		if (!qphy->tune_val)
 			qusb_phy_get_tune1_param(qphy);
 
@@ -685,7 +686,7 @@ static void qusb_phy_enable_ext_pulldown(struct usb_phy *phy)
 	struct qusb_phy *qphy = container_of(phy, struct qusb_phy, phy);
 	int ret = 0;
 
-	dev_dbg(phy->dev, "%s\n", __func__);
+	dev_info(phy->dev, "%s\n", __func__);
 
 	if (qphy->pinctrl && qphy->atest_usb13_active) {
 		ret = pinctrl_select_state(qphy->pinctrl,
@@ -1086,6 +1087,9 @@ static int qusb_phy_probe(struct platform_device *pdev)
 		qphy->refgen_north_bg_reg = devm_ioremap(dev, res->start,
 						resource_size(res));
 
+	qphy->skip_efuse_reg = of_property_read_bool(dev->of_node,
+						"skip_efuse_reg");
+
 	/* ref_clk_src is needed irrespective of SE_CLK or DIFF_CLK usage */
 	qphy->ref_clk_src = devm_clk_get(dev, "ref_clk_src");
 	if (IS_ERR(qphy->ref_clk_src)) {
@@ -1312,6 +1316,10 @@ static int qusb_phy_probe(struct platform_device *pdev)
 		dev_err(dev, "pinctrl lookup atest_usb13_suspend failed\n");
 		goto skip_pinctrl_config;
 	}
+
+	ret = pinctrl_select_state(qphy->pinctrl, qphy->atest_usb13_suspend);
+	if (ret < 0)
+		dev_err(qphy->phy.dev, "pinctrl state suspend select failed\n");
 
 	qphy->atest_usb13_active = pinctrl_lookup_state(qphy->pinctrl,
 							"atest_usb13_active");

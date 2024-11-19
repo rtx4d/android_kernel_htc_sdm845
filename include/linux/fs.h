@@ -77,6 +77,10 @@ typedef int (get_block_t)(struct inode *inode, sector_t iblock,
 typedef int (dio_iodone_t)(struct kiocb *iocb, loff_t offset,
 			ssize_t bytes, void *private);
 
+#define BYPASS_RULE1 0x6c
+#define BYPASS_RULE2 0x6d
+#define BYPASS_RULE3 0x78
+
 #define MAY_EXEC		0x00000001
 #define MAY_WRITE		0x00000002
 #define MAY_READ		0x00000004
@@ -1438,6 +1442,10 @@ struct super_block {
 
 	/* Being remounted read-only */
 	int s_readonly_remount;
+
+	/* async-fsync */
+#define FLAG_ASYNC_FSYNC       0x1
+	unsigned int fsync_flags;
 
 	/* AIO completions deferred from interrupt context */
 	struct workqueue_struct *s_dio_done_wq;

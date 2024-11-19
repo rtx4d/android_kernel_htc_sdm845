@@ -28,6 +28,8 @@
 #define VDM_VERSION		0x0
 #define USB_C_DP_SID		0xFF01
 
+u8 g_pin_assignment = 0;
+
 enum dp_usbpd_pin_assignment {
 	DP_USBPD_PIN_A,
 	DP_USBPD_PIN_B,
@@ -198,6 +200,7 @@ static u32 dp_usbpd_gen_config_pkt(struct dp_usbpd_private *pd)
 		pin = DP_USBPD_PIN_C;
 
 	pr_debug("pin assignment: %s\n", dp_usbpd_pin_name(pin));
+	g_pin_assignment = pin;
 
 	config |= BIT(pin) << 8;
 
@@ -217,27 +220,27 @@ static void dp_usbpd_send_event(struct dp_usbpd_private *pd,
 	case DP_USBPD_EVT_DISCOVER:
 		usbpd_send_svdm(pd->pd, USB_C_DP_SID,
 			USBPD_SVDM_DISCOVER_MODES,
-			SVDM_CMD_TYPE_INITIATOR, 0x0, 0x0, 0x0);
+			SVDM_CMD_TYPE_INITIATOR, 0x0, 0x0, 0x0, 0x0);
 		break;
 	case DP_USBPD_EVT_ENTER:
 		usbpd_send_svdm(pd->pd, USB_C_DP_SID,
 			USBPD_SVDM_ENTER_MODE,
-			SVDM_CMD_TYPE_INITIATOR, 0x1, 0x0, 0x0);
+			SVDM_CMD_TYPE_INITIATOR, 0x1, 0x0, 0x0, 0x0);
 		break;
 	case DP_USBPD_EVT_EXIT:
 		usbpd_send_svdm(pd->pd, USB_C_DP_SID,
 			USBPD_SVDM_EXIT_MODE,
-			SVDM_CMD_TYPE_INITIATOR, 0x1, 0x0, 0x0);
+			SVDM_CMD_TYPE_INITIATOR, 0x1, 0x0, 0x0, 0x0);
 		break;
 	case DP_USBPD_EVT_STATUS:
 		config = 0x1; /* DFP_D connected */
 		usbpd_send_svdm(pd->pd, USB_C_DP_SID, DP_USBPD_VDM_STATUS,
-			SVDM_CMD_TYPE_INITIATOR, 0x1, &config, 0x1);
+			SVDM_CMD_TYPE_INITIATOR, 0x1, &config, 0x1, 0x0);
 		break;
 	case DP_USBPD_EVT_CONFIGURE:
 		config = dp_usbpd_gen_config_pkt(pd);
 		usbpd_send_svdm(pd->pd, USB_C_DP_SID, DP_USBPD_VDM_CONFIGURE,
-			SVDM_CMD_TYPE_INITIATOR, 0x1, &config, 0x1);
+			SVDM_CMD_TYPE_INITIATOR, 0x1, &config, 0x1, g_pin_assignment);
 		break;
 	default:
 		pr_err("unknown event:%d\n", event);

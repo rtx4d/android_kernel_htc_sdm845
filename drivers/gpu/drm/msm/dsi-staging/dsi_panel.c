@@ -19,9 +19,15 @@
 #include <linux/of_gpio.h>
 #include <video/mipi_display.h>
 #include <linux/firmware.h>
+#include <linux/msm_htc_util.h>
 
 #include "dsi_panel.h"
 #include "dsi_ctrl_hw.h"
+#include <linux/backlight.h>
+
+#ifdef CONFIG_NANOHUB_FLASH_STATUS_CHECK
+#include <linux/nanohub_htc.h>
+#endif
 
 /**
  * topology is currently defined by a set of following 3 values:
@@ -42,6 +48,15 @@
 #define DEFAULT_PANEL_JITTER_ARRAY_SIZE		2
 #define MAX_PANEL_JITTER		10
 #define DEFAULT_PANEL_PREFILL_LINES	25
+
+extern void register_dimming_work(struct dsi_panel *panel);
+extern void htc_dimming_on(void);
+extern void htc_dimming_off(void);
+
+extern void htc_dsi_parse_esd_params(struct dsi_panel *panel);
+static int dsi_fix_max_vreg(struct disp_en_source *pwr_src, bool enable);
+static int dsi_panel_parse_fix_vreg(struct dsi_panel *panel,
+				     struct device_node *of_node);
 
 enum dsi_dsc_ratio_type {
 	DSC_8BPC_8BPP,
@@ -281,6 +296,14 @@ static int dsi_panel_gpio_request(struct dsi_panel *panel)
 		}
 	}
 
+	if (gpio_is_valid(panel->bl_config.i2c_sel_gpio)) {
+		rc = gpio_request(panel->bl_config.i2c_sel_gpio, "bklt_i2c_sel_gpio");
+		if (rc) {
+			pr_err("request for bklt_i2c_sel_gpio failed, rc=%d\n", rc);
+			goto error_release_bklt_i2c_sel;
+		}
+	}
+
 	if (gpio_is_valid(r_config->lcd_mode_sel_gpio)) {
 		rc = gpio_request(r_config->lcd_mode_sel_gpio, "mode_gpio");
 		if (rc) {
@@ -291,6 +314,9 @@ static int dsi_panel_gpio_request(struct dsi_panel *panel)
 
 	goto error;
 error_release_mode_sel:
+	if (gpio_is_valid(panel->bl_config.i2c_sel_gpio))
+		gpio_free(panel->bl_config.i2c_sel_gpio);
+error_release_bklt_i2c_sel:
 	if (gpio_is_valid(panel->bl_config.en_gpio))
 		gpio_free(panel->bl_config.en_gpio);
 error_release_disp_en:
@@ -316,6 +342,9 @@ static int dsi_panel_gpio_release(struct dsi_panel *panel)
 
 	if (gpio_is_valid(panel->bl_config.en_gpio))
 		gpio_free(panel->bl_config.en_gpio);
+
+	if (gpio_is_valid(panel->bl_config.i2c_sel_gpio))
+		gpio_free(panel->bl_config.i2c_sel_gpio);
 
 	if (gpio_is_valid(panel->reset_config.lcd_mode_sel_gpio))
 		gpio_free(panel->reset_config.lcd_mode_sel_gpio);
@@ -371,8 +400,17 @@ static int dsi_panel_reset(struct dsi_panel *panel)
 	}
 
 	for (i = 0; i < r_config->count; i++) {
-		gpio_set_value(r_config->reset_gpio,
-			       r_config->sequence[i].level);
+		if (r_config->sequence[i].level) {
+			send_dsi_status_notify(LCM_REST_EARLY_HIGH);
+			gpio_set_value(r_config->reset_gpio,
+				       r_config->sequence[i].level);
+			send_dsi_status_notify(LCM_REST_HIGH);
+		} else {
+			send_dsi_status_notify(LCM_REST_EARLY_LOW);
+			gpio_set_value(r_config->reset_gpio,
+				       r_config->sequence[i].level);
+			send_dsi_status_notify(LCM_REST_LOW);
+		}
 
 
 		if (r_config->sequence[i].sleep_ms)
@@ -431,11 +469,16 @@ static int dsi_panel_power_on(struct dsi_panel *panel)
 {
 	int rc = 0;
 
+	pr_info("%s\n",__func__);
 	rc = dsi_pwr_enable_regulator(&panel->power_info, true);
 	if (rc) {
 		pr_err("[%s] failed to enable vregs, rc=%d\n", panel->name, rc);
 		goto exit;
 	}
+
+	dsi_fix_max_vreg(&panel->disp_en_src, true);
+
+	send_dsi_status_notify(LCM_POWERON);
 
 	rc = dsi_panel_set_pinctrl_state(panel, true);
 	if (rc) {
@@ -474,11 +517,26 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 	if (gpio_is_valid(panel->reset_config.disp_en_gpio))
 		gpio_set_value(panel->reset_config.disp_en_gpio, 0);
 
-	if (gpio_is_valid(panel->reset_config.reset_gpio))
+	if (gpio_is_valid(panel->reset_config.reset_gpio) && !panel->reset_config.reset_keep_high) {
+		send_dsi_status_notify(LCM_REST_EARLY_LOW);
 		gpio_set_value(panel->reset_config.reset_gpio, 0);
+		send_dsi_status_notify(LCM_REST_LOW);
+	}
 
 	if (gpio_is_valid(panel->reset_config.lcd_mode_sel_gpio))
 		gpio_set_value(panel->reset_config.lcd_mode_sel_gpio, 0);
+
+#ifdef CONFIG_NANOHUB_FLASH_STATUS_CHECK
+	if(nanohub_flash_status_check())
+		goto exit;
+#endif
+	send_dsi_status_notify(LCM_EARLY_POWERDOWN);
+	rc = dsi_pwr_enable_regulator(&panel->power_info, false);
+	if (rc)
+		pr_err("[%s] failed to enable vregs, rc=%d\n", panel->name, rc);
+	send_dsi_status_notify(LCM_POWERDOWN);
+
+	dsi_fix_max_vreg(&panel->disp_en_src, false);
 
 	rc = dsi_panel_set_pinctrl_state(panel, false);
 	if (rc) {
@@ -486,10 +544,10 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 		       rc);
 	}
 
-	rc = dsi_pwr_enable_regulator(&panel->power_info, false);
-	if (rc)
-		pr_err("[%s] failed to enable vregs, rc=%d\n", panel->name, rc);
-
+	pr_info("%s\n",__func__);
+#ifdef CONFIG_NANOHUB_FLASH_STATUS_CHECK
+exit:
+#endif
 	return rc;
 }
 static int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
@@ -646,6 +704,21 @@ static int dsi_panel_update_backlight(struct dsi_panel *panel,
 	return rc;
 }
 
+static int dsi_panel_update_i2c_backlight(struct dsi_panel *panel,
+	u32 bl_lvl)
+{
+	int rc = 0;
+
+	if (!panel || (bl_lvl > 0xffff)) {
+		pr_err("invalid params\n");
+		return -EINVAL;
+	}
+	panel->bl_config.i2c_bd->props.brightness = bl_lvl;
+	backlight_update_status(panel->bl_config.i2c_bd);
+
+	return rc;
+}
+
 int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
 {
 	int rc = 0;
@@ -661,6 +734,10 @@ int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
 		break;
 	case DSI_BACKLIGHT_DCS:
 		rc = dsi_panel_update_backlight(panel, bl_lvl);
+		break;
+	case DSI_BACKLIGHT_I2C:
+		dsi_panel_update_i2c_backlight(panel, bl_lvl);
+		htc_dimming_on();
 		break;
 	default:
 		pr_err("Backlight type(%d) not supported\n", bl->type);
@@ -680,6 +757,8 @@ static int dsi_panel_bl_register(struct dsi_panel *panel)
 		rc = dsi_panel_led_bl_register(panel, bl);
 		break;
 	case DSI_BACKLIGHT_DCS:
+		break;
+	case DSI_BACKLIGHT_I2C:
 		break;
 	default:
 		pr_err("Backlight type(%d) not supported\n", bl->type);
@@ -701,6 +780,8 @@ static int dsi_panel_bl_unregister(struct dsi_panel *panel)
 		led_trigger_unregister_simple(bl->wled);
 		break;
 	case DSI_BACKLIGHT_DCS:
+		break;
+	case DSI_BACKLIGHT_I2C:
 		break;
 	default:
 		pr_err("Backlight type(%d) not supported\n", bl->type);
@@ -1471,6 +1552,10 @@ const char *cmd_set_prop_map[DSI_CMD_SET_MAX] = {
 	"ROI not parsed from DTSI, generated dynamically",
 	"qcom,mdss-dsi-timing-switch-command",
 	"qcom,mdss-dsi-post-mode-switch-on-command",
+	"htc,mdss-dsi-ddic-color-native",
+	"htc,mdss-dsi-ddic-color-srgb",
+	"htc,mdss-dsi-ddic-color-dci-p3",
+	"htc,dimming-on-cmds"
 };
 
 const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
@@ -1495,6 +1580,10 @@ const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
 	"ROI not parsed from DTSI, generated dynamically",
 	"qcom,mdss-dsi-timing-switch-command-state",
 	"qcom,mdss-dsi-post-mode-switch-on-command-state",
+	"htc,mdss-dsi-ddic-color-native-state",
+	"htc,mdss-dsi-ddic-color-srgb-state",
+	"htc,mdss-dsi-ddic-color-dci-p3-state",
+	"htc,dimming-on-cmds-state"
 };
 
 static int dsi_panel_get_cmd_pkt_count(const char *data, u32 length, u32 *cnt)
@@ -1692,6 +1781,17 @@ static int dsi_panel_parse_cmd_sets(
 	return rc;
 }
 
+static int dsi_panel_parse_lp11_init(struct dsi_panel *panel,
+				      struct device_node *of_node)
+{
+	panel->lp11_init = of_property_read_bool(of_node,
+					"qcom,mdss-dsi-lp11-init");
+	if(panel->lp11_init)
+		pr_debug("[%s]:lp11_init enable\n", __func__);
+
+	return 0;
+}
+
 static int dsi_panel_parse_reset_sequence(struct dsi_panel *panel,
 				      struct device_node *of_node)
 {
@@ -1863,6 +1963,8 @@ static int dsi_panel_parse_gpios(struct dsi_panel *panel,
 		goto error;
 	}
 
+	panel->reset_config.reset_keep_high = of_property_read_bool(of_node, "htc,rst-keep-high");
+
 	panel->reset_config.disp_en_gpio = of_get_named_gpio(of_node,
 						"qcom,5v-boost-gpio",
 						0);
@@ -1902,6 +2004,8 @@ static int dsi_panel_parse_gpios(struct dsi_panel *panel,
 		/* Set default mode as SPLIT mode */
 		panel->reset_config.mode_sel_state = MODE_SEL_DUAL_PORT;
 	}
+
+	dsi_panel_parse_lp11_init(panel, of_node);
 
 	/* TODO:  release memory */
 	rc = dsi_panel_parse_reset_sequence(panel, of_node);
@@ -1953,12 +2057,128 @@ error:
 	return rc;
 }
 
+static int dsi_panel_parse_brt_bl_table(struct dsi_panel *panel,
+				     struct device_node *of_node)
+{
+	u32 *data;
+	int i, len = 0;
+	struct backlight_table_v1_0 *brt_bl_table = &panel->bl_config.brt_bl_table;
+
+	data = (u32 *)of_get_property(of_node, "htc,brt-bl-table", &len);
+	len /= sizeof(u32);
+
+	if (!data || len & 0x01) {
+		pr_err("%s: read htc,brt-bl-table failed\n", __func__);
+	} else {
+		/* Separate the bl and brt table */
+		len >>= 1;
+		if (len > BACKLIGHT_TABLE_MAX_LENGTH)
+			return -EINVAL;
+
+		if (!brt_bl_table->brt_data){
+			brt_bl_table->brt_data = kzalloc(len * sizeof(u16), GFP_KERNEL);
+			if (!brt_bl_table->brt_data){
+				pr_err("%s: create backlight brt_data failed!\n", __func__);
+				return -EINVAL;
+			}
+		}
+
+		if (!brt_bl_table->bl_data_raw){
+			brt_bl_table->bl_data_raw = kzalloc(len * sizeof(u16), GFP_KERNEL);
+			if (!brt_bl_table->bl_data_raw){
+				pr_err("%s: create backlight bl_data_raw failed!\n", __func__);
+				goto error;
+			}
+		}
+
+		if (!brt_bl_table->bl_data){
+			brt_bl_table->bl_data = kzalloc(len * sizeof(u16), GFP_KERNEL);
+			if (!brt_bl_table->bl_data){
+				pr_err("%s: create backlight bl_data failed!\n", __func__);
+				goto error;
+			}
+		}
+
+		for (i = 0; i < len; i++) {
+			brt_bl_table->brt_data[i] = (u16) be32_to_cpup( data + (i << 1));
+			brt_bl_table->bl_data_raw[i]= brt_bl_table->bl_data[i] = (u16) be32_to_cpup( data + (i << 1) +1);
+			pr_debug("%s: bl=%d brt=%d i=%d\n", __func__, brt_bl_table->bl_data[i], brt_bl_table->brt_data[i], i);
+		}
+		brt_bl_table->size = len;
+		pr_info("%s: read BL Table success, brt_bl_table_size=%d\n", __func__, brt_bl_table->size);
+	}
+
+	return 0;
+
+error:
+
+if (brt_bl_table->brt_data){
+	kfree(brt_bl_table->brt_data);
+	brt_bl_table->brt_data = NULL;
+}
+
+if (brt_bl_table->bl_data_raw){
+	kfree(brt_bl_table->bl_data_raw);
+	brt_bl_table->bl_data_raw = NULL;
+}
+
+return -EINVAL;
+
+}
+
+static int dsi_panel_release_brt_bl_table(struct dsi_panel *panel)
+{
+	struct backlight_table_v1_0 *brt_bl_table = &panel->bl_config.brt_bl_table;
+
+	if (brt_bl_table->bl_data) {
+		brt_bl_table->size = 0;
+		kfree(brt_bl_table->bl_data);
+		brt_bl_table->bl_data = NULL;
+		kfree(brt_bl_table->brt_data);
+		brt_bl_table->brt_data = NULL;
+		kfree(brt_bl_table->bl_data_raw);
+		brt_bl_table->bl_data_raw = NULL;
+	}
+
+	return 0;
+}
+
+static int dsi_panel_parse_i2c_bl_config(struct dsi_panel *panel,
+					 struct device_node *of_node)
+{
+	int rc = 0;
+	struct dsi_backlight_config *config = &panel->bl_config;
+
+	dsi_panel_parse_brt_bl_table(panel, of_node);
+
+	config->i2c_sel_gpio = of_get_named_gpio(of_node,
+					     "qcom,platform-bkl-i2c-sel-gpio",
+					     0);
+	if (gpio_is_valid(config->i2c_sel_gpio)) {
+		rc = gpio_direction_output(config->i2c_sel_gpio, 0);
+		if (rc) {
+			pr_err("unable to set dir for bkl i2c sel gpio rc=%d\n", rc);
+			goto exit;
+		}
+		gpio_set_value(config->i2c_sel_gpio, 0);
+	}
+
+	panel->bl_config.i2c_bd_node = of_parse_phandle(of_node, "htc,mdss-dsi-bl-backlight", 0);
+	if (!panel->bl_config.i2c_bd_node) {
+		pr_err("no backlight node !\n");
+	}
+exit:
+	return 0;
+}
+
 static int dsi_panel_parse_bl_config(struct dsi_panel *panel,
 				     struct device_node *of_node)
 {
 	int rc = 0;
 	const char *bl_type;
 	u32 val = 0;
+
+	memset(&panel->bl_config, 0, sizeof(struct dsi_backlight_config));
 
 	bl_type = of_get_property(of_node,
 				  "qcom,mdss-dsi-bl-pmic-control-type",
@@ -1971,6 +2191,8 @@ static int dsi_panel_parse_bl_config(struct dsi_panel *panel,
 		panel->bl_config.type = DSI_BACKLIGHT_WLED;
 	} else if (!strcmp(bl_type, "bl_ctrl_dcs")) {
 		panel->bl_config.type = DSI_BACKLIGHT_DCS;
+	} else if (!strcmp(bl_type, "bl_ctrl_i2c")) {
+		panel->bl_config.type = DSI_BACKLIGHT_I2C;
 	} else {
 		pr_debug("[%s] bl-pmic-control-type unknown-%s\n",
 			 panel->name, bl_type);
@@ -2012,6 +2234,13 @@ static int dsi_panel_parse_bl_config(struct dsi_panel *panel,
 		rc = dsi_panel_parse_bl_pwm_config(&panel->bl_config, of_node);
 		if (rc) {
 			pr_err("[%s] failed to parse pwm config, rc=%d\n",
+			       panel->name, rc);
+			goto error;
+		}
+	}else if (panel->bl_config.type == DSI_BACKLIGHT_I2C) {
+		rc = dsi_panel_parse_i2c_bl_config(panel, of_node);
+		if (rc) {
+			pr_err("[%s] failed to parse bl_htc config, rc=%d\n",
 			       panel->name, rc);
 			goto error;
 		}
@@ -2962,10 +3191,84 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 	drm_panel_init(&panel->drm_panel);
 	mutex_init(&panel->panel_lock);
 	panel->parent = parent;
+	check_dsi_panel_data_used(panel);
+	htc_dsi_parse_esd_params(panel);
+	register_dimming_work(panel);
+	rc = dsi_panel_parse_fix_vreg(panel, of_node);
+	if (!rc)
+		dsi_fix_max_vreg(&panel->disp_en_src, true);
+
 	return panel;
 error:
 	kfree(panel);
 	return ERR_PTR(rc);
+}
+
+static int dsi_panel_parse_fix_vreg(struct dsi_panel *panel,
+				     struct device_node *of_node)
+{
+	int rc = -EINVAL;
+	struct regulator *vreg;
+	struct device_node *of_node_pwr;
+	u32 val;
+	char *vreg_name;
+
+	of_node_pwr = of_parse_phandle(of_node, "htc,vddio-source-fix-max", 0);
+	if (!of_node_pwr) {
+		pr_warn("failed to parse fix vreg!\n");
+		goto error;
+	}
+
+	vreg_name = (char *)of_get_property(of_node_pwr, "regulator-name", NULL);
+	if (!vreg_name) {
+		pr_warn("failed to parse fix vreg!\n");
+		goto error;
+	}
+
+	vreg = regulator_get(panel->parent, vreg_name);
+	if (!vreg) {
+		pr_warn("No %s\n",of_node_pwr->name);
+		goto error;
+	}
+
+	panel->disp_en_src.vreg = vreg;
+	rc = of_property_read_u32(of_node_pwr, "regulator-min-microvolt", &val);
+	if (!rc) {
+		panel->disp_en_src.min_uV = val;
+		pr_err("node:%s OK: %u\n", of_node_pwr->name, panel->disp_en_src.min_uV);
+
+		rc = of_property_read_u32(of_node_pwr, "regulator-max-microvolt", &val);
+		if (!rc) {
+			panel->disp_en_src.max_uV = val;
+			pr_err("node:%s OK: %u\n", of_node_pwr->name, panel->disp_en_src.max_uV);
+		}
+
+	}
+error:
+	return rc;
+}
+
+static int dsi_fix_max_vreg(struct disp_en_source *pwr_src, bool enable)
+{
+	int rc = 0;
+
+	if (!pwr_src || !pwr_src->vreg)
+		return -EINVAL;
+
+	if (enable) {
+		rc = regulator_set_voltage(pwr_src->vreg,
+					   pwr_src->max_uV,
+					   pwr_src->max_uV);
+	} else {
+		rc = regulator_set_voltage(pwr_src->vreg,
+					   pwr_src->min_uV,
+					   pwr_src->max_uV);
+	}
+
+	if (rc)
+		pr_err("failed to set voltage, rc=%d\n", rc);
+
+	return rc;
 }
 
 void dsi_panel_put(struct dsi_panel *panel)
@@ -2974,6 +3277,10 @@ void dsi_panel_put(struct dsi_panel *panel)
 	if (panel->type == DSI_PANEL)
 		dsi_panel_esd_config_deinit(&panel->esd_config);
 
+	/* free backlight table */
+	dsi_panel_release_brt_bl_table(panel);
+
+	check_dsi_panel_data_remove(panel);
 	kfree(panel);
 }
 
@@ -3688,6 +3995,10 @@ int dsi_panel_post_enable(struct dsi_panel *panel)
 	}
 error:
 	mutex_unlock(&panel->panel_lock);
+
+	if (panel->support_ddic_color_mode)
+		panel_set_color_mode(panel->current_color_mode);
+
 	return rc;
 }
 
@@ -3729,6 +4040,8 @@ int dsi_panel_disable(struct dsi_panel *panel)
 	if (panel->type == EXT_BRIDGE)
 		return 0;
 
+            
+	send_dsi_status_notify(LCM_EARLY_MIPI_OFF_CMD);
 	mutex_lock(&panel->panel_lock);
 
 	/* Avoid sending panel off commands when ESD recovery is underway */
@@ -3737,13 +4050,17 @@ int dsi_panel_disable(struct dsi_panel *panel)
 		if (rc) {
 			pr_err("[%s] failed to send DSI_CMD_SET_OFF cmds, rc=%d\n",
 					panel->name, rc);
-			goto error;
+		mutex_unlock(&panel->panel_lock);
+		return rc;
 		}
 	}
+
 	panel->panel_initialized = false;
 
-error:
 	mutex_unlock(&panel->panel_lock);
+
+	send_dsi_status_notify(LCM_MIPI_OFF_CMD);
+
 	return rc;
 }
 
@@ -3758,6 +4075,8 @@ int dsi_panel_unprepare(struct dsi_panel *panel)
 
 	if (panel->type == EXT_BRIDGE)
 		return 0;
+
+	htc_dimming_off();
 
 	mutex_lock(&panel->panel_lock);
 
@@ -3797,3 +4116,45 @@ error:
 	mutex_unlock(&panel->panel_lock);
 	return rc;
 }
+
+int htc_dsi_panel_parse_dcs_cmds_from_buf(char *buf, int length,
+					struct dsi_panel_cmd_set *cmd)
+{
+	int rc = 0;
+	u32 packet_count = 0;
+
+	rc = dsi_panel_get_cmd_pkt_count(buf, length, &packet_count);
+	if (rc) {
+		pr_err("commands failed, rc=%d\n", rc);
+		goto error;
+	}
+
+	pr_err("packet-count=%d, %d\n", packet_count, length);
+	if (!packet_count){
+		rc = -EINVAL;
+		goto error;
+	}
+
+	rc = dsi_panel_alloc_cmd_packets(cmd, packet_count);
+	if (rc) {
+		pr_err("failed to allocate cmd packets, rc=%d\n", rc);
+		goto error;
+	}
+
+	rc = dsi_panel_create_cmd_packets(buf, length, packet_count,
+					  cmd->cmds);
+	if (rc) {
+		pr_err("failed to create cmd packets, rc=%d\n", rc);
+		goto error_free_mem;
+	}
+
+	cmd->state = DSI_CMD_SET_STATE_LP;
+
+	return rc;
+error_free_mem:
+	kfree(cmd->cmds);
+	cmd->cmds = NULL;
+error:
+	return rc;
+}
+EXPORT_SYMBOL(htc_dsi_panel_parse_dcs_cmds_from_buf);

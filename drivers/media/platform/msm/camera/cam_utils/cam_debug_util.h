@@ -82,7 +82,7 @@ const char *cam_get_module_name(unsigned int module_id);
  * @args     :  Arguments which needs to be print in log
  */
 #define CAM_ERR(__module, fmt, args...)                            \
-	pr_err("CAM_ERR: %s: %s: %d " fmt "\n",                     \
+	pr_err("[CAM]CAM_ERR: %s: %s: %d " fmt "\n",                     \
 		cam_get_module_name(__module), __func__,  __LINE__, ##args)
 /*
  * CAM_WARN
@@ -93,7 +93,7 @@ const char *cam_get_module_name(unsigned int module_id);
  * @args     :  Arguments which needs to be print in log
  */
 #define CAM_WARN(__module, fmt, args...)                           \
-	pr_warn("CAM_WARN: %s: %s: %d " fmt "\n",                     \
+	pr_warn("[CAM]CAM_WARN: %s: %s: %d " fmt "\n",                     \
 		cam_get_module_name(__module), __func__,  __LINE__, ##args)
 /*
  * CAM_INFO
@@ -104,11 +104,24 @@ const char *cam_get_module_name(unsigned int module_id);
  * @args     :  Arguments which needs to be print in log
  */
 #define CAM_INFO(__module, fmt, args...)                           \
-	pr_info("CAM_INFO: %s: %s: %d " fmt "\n",                     \
+	pr_info("[CAM]CAM_INFO: %s: %s: %d " fmt "\n",                     \
 		cam_get_module_name(__module), __func__,  __LINE__, ##args)
+
+/*
+ * CAM_INFO_RATE_LIMIT
+ * @brief    :  This Macro will print info logs with ratelimit
+ *
+ * @__module :  Respective module id which is been calling this Macro
+ * @fmt      :  Formatted string which needs to be print in log
+ * @args     :  Arguments which needs to be print in log
+ */
+#define CAM_INFO_RATE_LIMIT(__module, fmt, args...)                 \
+	pr_err_ratelimited("CAM_INFO: %s: %s: %d " fmt "\n",            \
+		cam_get_module_name(__module), __func__,  __LINE__, ##args)
+
 /*
  * CAM_DBG
- * @brief :     This Macro will print debug logs when enabled using GROUP
+ * @brief    :  This Macro will print debug logs when enabled using GROUP
  *
  * @__module :  Respective module id which is been calling this Macro
  * @fmt      :  Formatted string which needs to be print in log
@@ -119,7 +132,7 @@ const char *cam_get_module_name(unsigned int module_id);
 
 /*
  * CAM_ERR_RATE_LIMIT
- * @brief :     This Macro will prevent error print logs with ratelimit
+ * @brief    :  This Macro will print error print logs with ratelimit
  */
 #define CAM_ERR_RATE_LIMIT(__module, fmt, args...)                 \
 	pr_err_ratelimited("CAM_ERR: %s: %s: %d " fmt "\n",            \

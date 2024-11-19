@@ -1890,6 +1890,10 @@ static void notify_adc_tm_fn(struct work_struct *work)
 	struct qpnp_adc_tm_sensor *adc_tm = container_of(work,
 		struct qpnp_adc_tm_sensor, work);
 	struct qpnp_adc_tm_chip *chip = adc_tm->chip;
+	static unsigned long debug_write_time;
+
+	if (printk_timed_ratelimit(&debug_write_time, 3000))
+		printk("%s thermal sensor_type=%s sensor_id=%d\n", __func__, adc_tm->tz_dev->type, adc_tm->tz_dev->id);
 
 	if (adc_tm->thermal_node) {
 		pr_debug("notifying uspace client\n");
@@ -2693,6 +2697,7 @@ static irqreturn_t qpnp_adc_tm_rc_thr_isr(int irq, void *data)
 	u8 status_low = 0, status_high = 0;
 	int rc = 0, sensor_low_notify_num = 0, i = 0;
 	int sensor_high_notify_num = 0;
+	static unsigned long debug_write_time;
 
 	rc = qpnp_adc_tm_read_reg(chip, QPNP_ADC_TM_STATUS_LOW,
 						&status_low, 1);
@@ -2727,6 +2732,10 @@ static irqreturn_t qpnp_adc_tm_rc_thr_isr(int irq, void *data)
 		status_high >>= 1;
 		i++;
 	}
+
+        if (printk_timed_ratelimit(&debug_write_time, 3000))
+                printk("%s sensor_low_notify_num=%d, sensor_high_notify_num=%d, wq_cnt=%d\n", __func__,
+				sensor_low_notify_num, sensor_high_notify_num, atomic_read(&chip->wq_cnt));
 
 	if (sensor_low_notify_num) {
 		if (queue_work(chip->low_thr_wq, &chip->trigger_low_thr_work))

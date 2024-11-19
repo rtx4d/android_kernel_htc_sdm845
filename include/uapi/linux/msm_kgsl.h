@@ -332,6 +332,8 @@ enum kgsl_timestamp_type {
 #define KGSL_PROP_UBWC_MODE		0x1B
 #define KGSL_PROP_DEVICE_QTIMER		0x20
 #define KGSL_PROP_L3_PWR_CONSTRAINT     0x22
+#define KGSL_PROP_SECURE_BUFFER_ALIGNMENT 0x23
+#define KGSL_PROP_SECURE_CTXT_SUPPORT 0x24
 
 struct kgsl_shadowprop {
 	unsigned long gpuaddr;
@@ -1027,6 +1029,24 @@ struct kgsl_gpumem_sync_cache_bulk {
 
 #define IOCTL_KGSL_GPUMEM_SYNC_CACHE_BULK \
 	_IOWR(KGSL_IOC_TYPE, 0x3C, struct kgsl_gpumem_sync_cache_bulk)
+
+/*
+ * kgsl_get_alloc_size - acquire memory size allocated in kernel space by kgsl
+ * @detailed: to indicate if need detailed info,
+ * set detailed to 1, if need the detailed info
+ * of each gfx process for different type memory usage,
+ * said ion, ashmem, kernel ...etc
+ *
+ * Returns allocated memory size and prints kgsl meminfo in kernel log if set detailed
+ */
+#ifdef CONFIG_QCOM_KGSL
+unsigned int kgsl_get_alloc_size(int detailed);
+#else
+static inline unsigned int kgsl_get_alloc_size(__attribute__((unused))int detailed)
+{
+	return 0;
+}
+#endif
 
 /*
  * struct kgsl_cmd_syncpoint_timestamp

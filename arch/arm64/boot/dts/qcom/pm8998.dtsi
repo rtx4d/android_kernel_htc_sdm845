@@ -31,10 +31,11 @@
 			reg = <0x800 0x100>;
 			interrupts = <0x0 0x8 0x0 IRQ_TYPE_NONE>,
 				     <0x0 0x8 0x1 IRQ_TYPE_NONE>,
+				     <0x0 0x8 0x3 IRQ_TYPE_NONE>,
 				     <0x0 0x8 0x4 IRQ_TYPE_NONE>,
 				     <0x0 0x8 0x5 IRQ_TYPE_NONE>;
 			interrupt-names = "kpdpwr", "resin",
-					"resin-bark", "kpdpwr-resin-bark";
+					"kpdpwr-bark", "resin-bark", "kpdpwr-resin-bark";
 			qcom,pon-dbc-delay = <15625>;
 			qcom,kpdpwr-sw-debounce;
 			qcom,system-reset;
@@ -54,7 +55,7 @@
 
 			qcom,pon_3 {
 				qcom,pon-type = <3>;
-				qcom,support-reset = <1>;
+				qcom,support-reset = <0>;
 				qcom,pull-up = <1>;
 				qcom,s1-timer = <6720>;
 				qcom,s2-timer = <2000>;
@@ -89,6 +90,7 @@
 					<0x0 0xcb 0 IRQ_TYPE_NONE>,
 					<0x0 0xcc 0 IRQ_TYPE_NONE>,
 					<0x0 0xcd 0 IRQ_TYPE_NONE>,
+					<0x0 0xce 0 IRQ_TYPE_NONE>, /* HTC_AUD: add GPIO15 for SDM845 EVM */
 					<0x0 0xcf 0 IRQ_TYPE_NONE>,
 					<0x0 0xd0 0 IRQ_TYPE_NONE>,
 					<0x0 0xd1 0 IRQ_TYPE_NONE>,
@@ -101,13 +103,14 @@
 					"pm8998_gpio8", "pm8998_gpio9",
 					"pm8998_gpio10", "pm8998_gpio11",
 					"pm8998_gpio12", "pm8998_gpio13",
-					"pm8998_gpio14", "pm8998_gpio16",
+					"pm8998_gpio14", "pm8998_gpio15", /* HTC_AUD: add GPIO15 for SDM845 EVM */
+					"pm8998_gpio16",
 					"pm8998_gpio17", "pm8998_gpio18",
 					"pm8998_gpio19", "pm8998_gpio21",
 					"pm8998_gpio23";
 			gpio-controller;
 			#gpio-cells = <2>;
-			qcom,gpios-disallowed = <3 15 20 22 24 25 26>;
+			qcom,gpios-disallowed = <3 20 22 24 25 26>; /* HTC_AUD: allow GPIO15 for SDM845 EVM */
 		};
 
 		pm8998_coincell: qcom,coincell@2800 {

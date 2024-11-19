@@ -2,6 +2,14 @@
 # Makefile for nfc devices
 #
 
+#NFC ++
+ifeq ($(findstring JAPAN,$(PRIVATE_SKU_NAME)),JAPAN)
+obj-$(CONFIG_SENSORS_NFC_CXD224X) += cxd225x-i2c.o
+else
+obj-$(CONFIG_SENSORS_NFC_PN553) += nq-nci-htc.o
+obj-$(CONFIG_SENSORS_NFC_PN553) += nq-nci-htc-mfg.o
+endif
+#NFC --
 obj-$(CONFIG_NFC_FDP)		+= fdp/
 obj-$(CONFIG_NFC_PN544)		+= pn544/
 obj-$(CONFIG_NFC_MICROREAD)	+= microread/

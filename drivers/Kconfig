@@ -210,4 +210,11 @@ source "drivers/sensors/Kconfig"
 
 source "drivers/tee/Kconfig"
 
+source "drivers/htc_debug/stability/Kconfig"
+
+source "drivers/htc_radio/Kconfig"
+
+source "drivers/htc_mnemosyne/Kconfig"
+
+source "drivers/gud/Kconfig"
 endmenu

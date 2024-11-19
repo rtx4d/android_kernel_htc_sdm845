@@ -3013,8 +3013,24 @@ static void sdhci_cmd_irq(struct sdhci_host *host, u32 intmask)
 		       SDHCI_INT_END_BIT | SDHCI_INT_INDEX |
 		       SDHCI_INT_AUTO_CMD_ERR)) {
 		if (intmask & SDHCI_INT_TIMEOUT) {
+			if (host->cmd->opcode != MMC_SLEEP_AWAKE &&
+					host->cmd->opcode != MMC_SEND_EXT_CSD &&
+					host->cmd->opcode != 52 &&
+					host->cmd->opcode != MMC_SEND_OP_COND && host->cmd->opcode != 55) {
+						pr_err("%s: CMD%d: Command timeout\n",
+							mmc_hostname(host->mmc), host->cmd->opcode);
+			}
 			host->cmd->error = -ETIMEDOUT;
 			host->mmc->err_stats[MMC_ERR_CMD_TIMEOUT]++;
+		} else if (intmask & (SDHCI_INT_CRC | SDHCI_INT_END_BIT |
+					SDHCI_INT_INDEX)) {
+					host->cmd->error = -EILSEQ;
+					if ((host->cmd->opcode != MMC_SEND_TUNING_BLOCK_HS200) &&
+						(host->cmd->opcode != MMC_SEND_STATUS) &&
+						(host->cmd->opcode != MMC_SEND_TUNING_BLOCK)) {
+							pr_err("%s: CMD%d: Command CRC error\n",
+								mmc_hostname(host->mmc), host->cmd->opcode);
+					}
 		} else {
 			host->cmd->error = -EILSEQ;
 			host->mmc->err_stats[MMC_ERR_CMD_CRC]++;
@@ -3177,13 +3193,24 @@ static void sdhci_data_irq(struct sdhci_host *host, u32 intmask)
 	if (intmask & SDHCI_INT_DATA_TIMEOUT) {
 		host->data->error = -ETIMEDOUT;
 		host->mmc->err_stats[MMC_ERR_DAT_TIMEOUT]++;
+		command = SDHCI_GET_CMD(sdhci_readw(host, SDHCI_COMMAND));
+		pr_err("%s: CMD%d: Data timeout\n",
+			mmc_hostname(host->mmc), command);
 	}
 	else if (intmask & SDHCI_INT_DATA_END_BIT)
 		host->data->error = -EILSEQ;
 	else if ((intmask & SDHCI_INT_DATA_CRC) &&
 		(command != MMC_BUS_TEST_R)) {
+		command = SDHCI_GET_CMD(sdhci_readw(host, SDHCI_COMMAND));
 		host->data->error = -EILSEQ;
 		host->mmc->err_stats[MMC_ERR_DAT_CRC]++;
+		if((command != MMC_SEND_TUNING_BLOCK_HS200) &&
+			(command != MMC_SEND_TUNING_BLOCK)) {
+			pr_err("%s: Data CRC error\n",
+				mmc_hostname(host->mmc));
+			pr_err("%s: opcode 0x%.8x\n", __func__,
+				command);
+		}
 	}
 	else if (intmask & SDHCI_INT_ADMA_ERROR) {
 		pr_err("%s: ADMA error\n", mmc_hostname(host->mmc));

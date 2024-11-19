@@ -131,6 +131,17 @@ static int32_t cam_cci_i2c_write_table_cmd(
 		return rc;
 	}
 	rc = cci_ctrl.status;
+//HTC_START
+	if( write_setting->size > 1 )
+	{
+	    if(write_setting->reg_setting[1].reg_addr == 0x6010 && write_setting->reg_setting[1].reg_data == 0x1)
+	    {
+	            pr_err("%s:%d Start Delay 3ms\n", __func__, __LINE__);
+	            usleep_range(3000,3100);
+	            pr_err("%s:%d End Delay 3ms\n", __func__, __LINE__);
+	    }
+	}
+//HTC_END
 	if (write_setting->delay > 20)
 		msleep(write_setting->delay);
 	else if (write_setting->delay)

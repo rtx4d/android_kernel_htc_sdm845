@@ -17,6 +17,468 @@
 #include "cam_eeprom_core.h"
 #include "cam_eeprom_soc.h"
 #include "cam_debug_util.h"
+//HTC_START
+#include "cam_sensor_dev.h"
+#include "lc898123F40_htc.h"
+//HTC_END
+//file operation+
+#include <linux/fs.h>
+#include <linux/file.h>
+#include <linux/vmalloc.h>
+#include <asm/segment.h>
+#include <asm/uaccess.h>
+#include <linux/buffer_head.h>
+//file operation-
+
+/* --- Arcsoft data --- */
+#define MAIN_ARCSOFT_CAL_DATA_SIZE 2016 // 2048 - 32 we need to write 27+2016+5 to let start address of every block be mutiple of 32
+#define MAIN_ARCSOFT_HEAD_ADDRESS 0x10A5 // first 27 byte
+#define MAIN_ARCSOFT_BODY_ADDRESS 0x10C0 // 32byte per write
+#define MAIN_ARCSOFT_TAIL_ADDRESS 0x18A0 // last 5 byte
+#define FRONT_ARCSOFT_CAL_DATA_SIZE 2016 // 2048 - 32 we need to write 26+2016+6 to let start address of every block be mutiple of 32
+#define FRONT_ARCSOFT_HEAD_ADDRESS 0x1686 // first 26 byte
+#define FRONT_ARCSOFT_BODY_ADDRESS 0x16A0 // 32byte per write
+#define FRONT_ARCSOFT_TAIL_ADDRESS 0x1E80 // last 6 byte
+#define ARCSOFT_EXTRAINFO_SIZE 24
+#define MAIN_ARCSOFT_EXTRAINFO_ADDRESS 0x18C0
+#define FRONT_ARCSOFT_EXTRAINFO_ADDRESS 0x1E86
+/* --- Arcsoft data --- */
+
+// The ST M24C64 EEPROM only allow 'Page Write' to 32 bytes written in a single write cycle
+#define I2C_WRITE_SEQ_PAGE_SIZE 32
+static void cam_eeprom_write_flash(struct cam_eeprom_ctrl_t *e_ctrl)
+{
+	struct device_node *of_node = e_ctrl->soc_info.dev->of_node;
+	uint32_t cellindex = 5; //initialize as 5
+	char calibration_data[8] = {0};
+	struct file *pFile = NULL;
+	int i = 0;
+	int rc = 0;
+	int byte_to_write = 0;
+	if (0 > of_property_read_u32(of_node, "cell-index", &cellindex)){
+		CAM_ERR(CAM_EEPROM, "failed to get cell-index from dsti");
+	}
+	if (cellindex == 1)
+	{
+		struct cam_sensor_i2c_reg_setting  i2c_reg_settings;
+		i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+		i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+		i2c_reg_settings.size = 8;
+		i2c_reg_settings.delay = 0;
+		i2c_reg_settings.reg_setting = (struct cam_sensor_i2c_reg_array *)
+		kzalloc(sizeof(struct cam_sensor_i2c_reg_array) * 8,
+		GFP_KERNEL);
+
+		pFile=msm_fopen ("/data/misc/camera/flash_info_Main", O_RDONLY, 0666);
+		if (pFile == NULL)
+/* HTC_START */
+		{
+			if (i2c_reg_settings.reg_setting)
+				kfree(i2c_reg_settings.reg_setting);
+/* HTC_END */
+			return ;
+/* HTC_START */
+		}
+/* HTC_END */
+		byte_to_write = msm_fread(pFile, 0, calibration_data, 8);
+		msm_fclose (pFile);
+
+/* HTC_START */
+		if (i2c_reg_settings.reg_setting) {
+/* HTC_END */
+		for( i = 0 ; i < 8; i++)
+		{
+			i2c_reg_settings.reg_setting[i].reg_addr = 0x18A5 + i;
+			i2c_reg_settings.reg_setting[i].reg_data = calibration_data[i];
+			i2c_reg_settings.reg_setting[i].delay = 0;
+			i2c_reg_settings.reg_setting[i].data_mask = 0;
+			pr_info("[WEEPROM] reg_addr = 0x%X data = 0x%X ",
+				i2c_reg_settings.reg_setting[i].reg_addr,
+				i2c_reg_settings.reg_setting[i].reg_data);
+		}
+/* HTC_START */
+		}
+/* HTC_END */
+		rc = camera_io_dev_write_continuous(&e_ctrl->io_master_info,&i2c_reg_settings,1);
+		pr_info("[WEEPROM] camera_io_dev_write rc = %d ",rc);
+		msleep(10);
+		pFile=msm_fopen ("/data/misc/camera/flash_info_Main_Sub", O_RDONLY, 0666);
+		if (pFile == NULL)
+/* HTC_START */
+		{
+			if (i2c_reg_settings.reg_setting)
+				kfree(i2c_reg_settings.reg_setting);
+/* HTC_END */
+			return ;
+/* HTC_START */
+		}
+/* HTC_END */
+
+		byte_to_write = msm_fread(pFile, 0, calibration_data, 8);
+
+		msm_fclose (pFile);
+/* HTC_START */
+		if (i2c_reg_settings.reg_setting) {
+/* HTC_END */
+		for( i = 0 ; i < 8; i++)
+		{
+			i2c_reg_settings.reg_setting[i].reg_addr = 0x18AD + i;
+			i2c_reg_settings.reg_setting[i].reg_data = calibration_data[i];
+			i2c_reg_settings.reg_setting[i].delay = 0;
+			i2c_reg_settings.reg_setting[i].data_mask = 0;
+			pr_info("[WEEPROM] reg_addr = 0x%X data = 0x%X ",
+				i2c_reg_settings.reg_setting[i].reg_addr,
+				i2c_reg_settings.reg_setting[i].reg_data);
+		}
+/* HTC_START */
+		}
+/* HTC_END */
+		rc = camera_io_dev_write_continuous(&e_ctrl->io_master_info,&i2c_reg_settings,1);
+		pr_info("[WEEPROM] camera_io_dev_write rc = %d ",rc);
+
+		kfree(i2c_reg_settings.reg_setting);
+	}
+	msleep(10);
+}
+
+/* set_protection on/off are same Address and data, only Slave address is different*/
+static void cam_eeprom_set_protection(struct cam_eeprom_ctrl_t *e_ctrl)
+{
+	int rc = 0;
+
+	struct cam_sensor_i2c_reg_setting  i2c_reg_settings;
+	i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+	i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+	i2c_reg_settings.size = 1;
+	i2c_reg_settings.delay = 0;
+	i2c_reg_settings.reg_setting = (struct cam_sensor_i2c_reg_array *)
+	kzalloc(sizeof(struct cam_sensor_i2c_reg_array) * 1,
+	GFP_KERNEL);
+/* HTC_START */
+	if (i2c_reg_settings.reg_setting) {
+/* HTC_END */
+	i2c_reg_settings.reg_setting[0].reg_addr = 0x00;
+	i2c_reg_settings.reg_setting[0].reg_data = 0x00;
+	i2c_reg_settings.reg_setting[0].delay = 0;
+/* HTC_START */
+	}
+/* HTC_END */
+	rc = camera_io_dev_write(&e_ctrl->io_master_info,&i2c_reg_settings);
+	usleep_range(5000,6000);
+
+	kfree(i2c_reg_settings.reg_setting);
+
+	msleep(10);
+}
+
+static int cam_eeprom_write_dual_data(
+	struct cam_eeprom_ctrl_t *e_ctrl,
+	struct file *pFile,
+	int readoffset,
+	int readsize,
+	int writeaddress,
+	struct cam_sensor_i2c_reg_setting *i2c_reg_settings)
+{
+	// page read
+	int rc = 0;
+	int i=0;
+	char calibration_data[I2C_WRITE_SEQ_PAGE_SIZE] = {0};
+	int byte_to_write = 0;
+
+	byte_to_write = msm_fread(pFile, readoffset, calibration_data, readsize);
+	if (byte_to_write != readsize) {
+		pr_err("%s : read (part %d) error, read %d bytes, read size = %d", __func__, i, byte_to_write,readsize);
+		rc = EINVAL;
+		return rc;
+	}
+
+	for( i = 0 ; i < readsize; i++)
+	{
+		i2c_reg_settings->reg_setting[i].reg_addr = writeaddress + i;
+		i2c_reg_settings->reg_setting[i].reg_data = calibration_data[i];
+		i2c_reg_settings->reg_setting[i].delay = 0;
+		i2c_reg_settings->reg_setting[i].data_mask = 0;
+	}
+	i2c_reg_settings->size = readsize;
+	rc = camera_io_dev_write_continuous(&e_ctrl->io_master_info,i2c_reg_settings,0);
+
+	return rc;
+}
+
+static void cam_eeprom_write_dual_extrainfo_camera(struct cam_eeprom_ctrl_t *e_ctrl)
+{
+	struct device_node *of_node = e_ctrl->soc_info.dev->of_node;
+	uint32_t cellindex = 5; //initialize as 5
+	struct file *pFile = NULL;
+	struct file *pMFile = NULL;
+	struct file *pFFile = NULL;
+	int rc = 0;
+	if (0 > of_property_read_u32(of_node, "cell-index", &cellindex)){
+		CAM_ERR(CAM_EEPROM, "failed to get cell-index from dsti");
+	}
+	pr_info("[WEEPROM] start write eeprom cellindex %d ",cellindex);
+	if (cellindex == 1)
+	{
+		struct cam_sensor_i2c_reg_setting  i2c_reg_settings;
+		i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+		i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+		i2c_reg_settings.size = ARCSOFT_EXTRAINFO_SIZE;
+		i2c_reg_settings.delay = 5;
+		i2c_reg_settings.reg_setting = (struct cam_sensor_i2c_reg_array *)
+		kzalloc(sizeof(struct cam_sensor_i2c_reg_array) * ARCSOFT_EXTRAINFO_SIZE,
+		GFP_KERNEL);
+		pFile = msm_fopen ("/data/misc/camera/Main_System_Arcsoft_data.bin", O_RDONLY, 0666);
+		if (pFile == NULL) {
+			pr_err("%s : open /data/misc/camera/Main_System_Arcsoft_data.bin fail", __func__);
+			rc = EINVAL;
+			goto free_mem;
+		} else {
+
+			rc = cam_eeprom_write_dual_data(
+				e_ctrl,pFile,
+				0,
+				ARCSOFT_EXTRAINFO_SIZE,
+				MAIN_ARCSOFT_EXTRAINFO_ADDRESS,
+				&i2c_reg_settings);
+			if (rc < 0) {
+				pr_err("%s : eeprom data write fail (head part)\n", __func__);
+				msm_fclose(pFile);
+				goto free_mem;
+			}
+
+			if ( rc == 0 )
+				pMFile = msm_fopen ("/data/misc/camera/dualcam_extrainfo_write_eeprom_success.txt", O_CREAT|O_RDWR|O_TRUNC, 0666);
+			else
+				pMFile = msm_fopen ("/data/misc/camera/dualcam_extrainfo_write_eeprom_fail.txt", O_CREAT|O_RDWR|O_TRUNC, 0666);
+
+			if ( pMFile != NULL ){
+				msm_fwrite(pMFile, 0, 0, 0);
+				msm_fclose(pMFile);
+			}
+
+			msm_fclose(pFile);
+		}
+free_mem:
+		kfree(i2c_reg_settings.reg_setting);
+	}
+	else if (cellindex == 3)
+	{
+		struct cam_sensor_i2c_reg_setting  i2c_reg_settings;
+		i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+		i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+		i2c_reg_settings.size = ARCSOFT_EXTRAINFO_SIZE;
+		i2c_reg_settings.delay = 5;
+		i2c_reg_settings.reg_setting = (struct cam_sensor_i2c_reg_array *)
+		kzalloc(sizeof(struct cam_sensor_i2c_reg_array) * ARCSOFT_EXTRAINFO_SIZE,
+		GFP_KERNEL);
+		pFile = msm_fopen ("/data/misc/camera/Front_System_Arcsoft_data.bin", O_RDONLY, 0666);
+		if (pFile == NULL) {
+			pr_err("%s : open /data/misc/camera/Front_System_Arcsoft_data.bin fail", __func__);
+			rc = EINVAL;
+			goto free_mem2;
+		} else {
+
+
+			rc = cam_eeprom_write_dual_data(
+				e_ctrl,pFile,
+				0,
+				ARCSOFT_EXTRAINFO_SIZE,
+				FRONT_ARCSOFT_EXTRAINFO_ADDRESS,
+				&i2c_reg_settings);
+			if (rc < 0) {
+				pr_err("%s : eeprom data write fail (head part)\n", __func__);
+				msm_fclose(pFile);
+				goto free_mem2;
+			}
+
+			if ( rc == 0 )
+				pFFile = msm_fopen ("/data/misc/camera/dualcam_extrainfo_write_front_eeprom_success.txt", O_CREAT|O_RDWR|O_TRUNC, 0666);
+			else
+				pFFile = msm_fopen ("/data/misc/camera/dualcam_extrainfo_write_front_eeprom_fail.txt", O_CREAT|O_RDWR|O_TRUNC, 0666);
+
+			if ( pFFile != NULL ){
+				msm_fwrite(pFFile, 0, 0, 0);
+				msm_fclose(pFFile);
+			}
+
+			msm_fclose(pFile);
+		}
+free_mem2:
+		kfree(i2c_reg_settings.reg_setting);
+	}
+	else
+	{
+		pr_info("[WEEPROM] no need to write dual data in camera cellindex %d",cellindex);
+	}
+	if(rc == 0)
+		pr_info("[WEEPROM] camera cellindex %d write success",cellindex);
+	msleep(10);
+}
+
+static void cam_eeprom_write_dual_camera(struct cam_eeprom_ctrl_t *e_ctrl)
+{
+	struct device_node *of_node = e_ctrl->soc_info.dev->of_node;
+	uint32_t cellindex = 5; //initialize as 5
+	struct file *pFile = NULL;
+	struct file *pMFile = NULL;
+	struct file *pFFile = NULL;
+	int i = 0;
+	int rc = 0;
+	if (0 > of_property_read_u32(of_node, "cell-index", &cellindex)){
+		CAM_ERR(CAM_EEPROM, "failed to get cell-index from dsti");
+	}
+	pr_info("[WEEPROM] start write eeprom cellindex %d ",cellindex);
+	if (cellindex == 1)
+	{
+		struct cam_sensor_i2c_reg_setting  i2c_reg_settings;
+		i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+		i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+		i2c_reg_settings.size = I2C_WRITE_SEQ_PAGE_SIZE;
+		i2c_reg_settings.delay = 5;
+		i2c_reg_settings.reg_setting = (struct cam_sensor_i2c_reg_array *)
+		kzalloc(sizeof(struct cam_sensor_i2c_reg_array) * I2C_WRITE_SEQ_PAGE_SIZE,
+		GFP_KERNEL);
+		pFile = msm_fopen ("/data/misc/camera/Main.bin", O_RDONLY, 0666);
+		if (pFile == NULL) {
+			pr_err("%s : open /data/misc/camera/Main.bin fail", __func__);
+			rc = EINVAL;
+			goto free_mem;
+		} else {
+
+			rc = cam_eeprom_write_dual_data(
+				e_ctrl,pFile,
+				0,
+				27,
+				MAIN_ARCSOFT_HEAD_ADDRESS,
+				&i2c_reg_settings);
+			if (rc < 0) {
+				pr_err("%s : eeprom data write fail (head part)\n", __func__);
+				msm_fclose(pFile);
+				goto free_mem;
+			}
+
+			for (i = 0; i < (MAIN_ARCSOFT_CAL_DATA_SIZE/I2C_WRITE_SEQ_PAGE_SIZE); i++)
+			{
+				rc = cam_eeprom_write_dual_data(
+					e_ctrl,pFile,
+					27+(i*I2C_WRITE_SEQ_PAGE_SIZE),
+					I2C_WRITE_SEQ_PAGE_SIZE,
+					MAIN_ARCSOFT_BODY_ADDRESS+(i*I2C_WRITE_SEQ_PAGE_SIZE),
+					&i2c_reg_settings);
+					if (rc < 0) {
+						pr_err("%s : eeprom data write fail (body part %d)\n", __func__, i);
+						msm_fclose(pFile);
+						goto free_mem;
+					}
+			}
+
+			rc = cam_eeprom_write_dual_data(
+				e_ctrl,pFile,
+				2043,
+				5,
+				MAIN_ARCSOFT_TAIL_ADDRESS,
+				&i2c_reg_settings);
+			if (rc < 0) {
+				pr_err("%s : eeprom data write fail (tail part)\n", __func__);
+				msm_fclose(pFile);
+				goto free_mem;
+			}
+
+			if ( rc == 0 )
+				pMFile = msm_fopen ("/data/misc/camera/dualcam_write_eeprom_success.txt", O_CREAT|O_RDWR|O_TRUNC, 0666);
+			else
+				pMFile = msm_fopen ("/data/misc/camera/dualcam_write_eeprom_fail.txt", O_CREAT|O_RDWR|O_TRUNC, 0666);
+
+			if ( pMFile != NULL ){
+				msm_fwrite(pMFile, 0, 0, 0);
+				msm_fclose(pMFile);
+			}
+
+			msm_fclose(pFile);
+		}
+free_mem:
+		kfree(i2c_reg_settings.reg_setting);
+	}
+	else if (cellindex == 3)
+	{
+		struct cam_sensor_i2c_reg_setting  i2c_reg_settings;
+		i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+		i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+		i2c_reg_settings.size = I2C_WRITE_SEQ_PAGE_SIZE;
+		i2c_reg_settings.delay = 5;
+		i2c_reg_settings.reg_setting = (struct cam_sensor_i2c_reg_array *)
+		kzalloc(sizeof(struct cam_sensor_i2c_reg_array) * I2C_WRITE_SEQ_PAGE_SIZE,
+		GFP_KERNEL);
+		pFile = msm_fopen ("/data/misc/camera/Front.bin", O_RDONLY, 0666);
+		if (pFile == NULL) {
+			pr_err("%s : open /data/misc/camera/Front.bin fail", __func__);
+			rc = EINVAL;
+			goto free_mem2;
+		} else {
+
+
+			rc = cam_eeprom_write_dual_data(
+				e_ctrl,pFile,
+				0,
+				26,
+				FRONT_ARCSOFT_HEAD_ADDRESS,
+				&i2c_reg_settings);
+			if (rc < 0) {
+				pr_err("%s : eeprom data write fail (head part)\n", __func__);
+				msm_fclose(pFile);
+				goto free_mem2;
+			}
+
+			for (i = 0; i < (FRONT_ARCSOFT_CAL_DATA_SIZE/I2C_WRITE_SEQ_PAGE_SIZE); i++)
+			{
+				rc = cam_eeprom_write_dual_data(
+					e_ctrl,pFile,
+					26+(i*I2C_WRITE_SEQ_PAGE_SIZE),
+					I2C_WRITE_SEQ_PAGE_SIZE,
+					FRONT_ARCSOFT_BODY_ADDRESS+(i*I2C_WRITE_SEQ_PAGE_SIZE),
+					&i2c_reg_settings);
+					if (rc < 0) {
+						pr_err("%s : eeprom data write fail (body part %d)\n", __func__, i);
+						msm_fclose(pFile);
+						goto free_mem2;
+					}
+			}
+
+			rc = cam_eeprom_write_dual_data(
+				e_ctrl,pFile,
+				2042,
+				6,
+				FRONT_ARCSOFT_TAIL_ADDRESS,
+				&i2c_reg_settings);
+			if (rc < 0) {
+				pr_err("%s : eeprom data write fail (tail part)\n", __func__);
+				msm_fclose(pFile);
+				goto free_mem2;
+			}
+
+			if ( rc == 0 )
+				pFFile = msm_fopen ("/data/misc/camera/dualcam_write_front_eeprom_success.txt", O_CREAT|O_RDWR|O_TRUNC, 0666);
+			else
+				pFFile = msm_fopen ("/data/misc/camera/dualcam_write_front_eeprom_fail.txt", O_CREAT|O_RDWR|O_TRUNC, 0666);
+
+			if ( pFFile != NULL ){
+				msm_fwrite(pFFile, 0, 0, 0);
+				msm_fclose(pFFile);
+			}
+
+			msm_fclose(pFile);
+		}
+free_mem2:
+		kfree(i2c_reg_settings.reg_setting);
+	}
+	else
+	{
+		pr_info("[WEEPROM] no need to write dual data in camera cellindex %d",cellindex);
+	}
+	if(rc == 0)
+		pr_info("[WEEPROM] camera cellindex %d write success",cellindex);
+	msleep(10);
+}
 
 /**
  * cam_eeprom_read_memory() - read map data into buffer
@@ -36,6 +498,13 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 	struct cam_eeprom_memory_map_t    *emap = block->map;
 	struct cam_eeprom_soc_private     *eb_info;
 	uint8_t                           *memptr = block->mapdata;
+//HTC_START
+	struct device_node *of_node = e_ctrl->soc_info.dev->of_node;
+	uint32_t cellindex = 5; //initialize as 5
+	if (0 > of_property_read_u32(of_node, "cell-index", &cellindex)){
+		CAM_ERR(CAM_EEPROM, "failed to get cell-index from dsti");
+	}
+//HTC_END
 
 	if (!e_ctrl) {
 		CAM_ERR(CAM_EEPROM, "e_ctrl is NULL");
@@ -106,11 +575,20 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 		}
 
 		if (emap[j].mem.valid_size) {
+//HTC_START
+			if(cellindex == 0) {
+				htc_ext_FlashSectorRead(&e_ctrl->io_master_info, memptr, emap[j].mem.addr, emap[j].mem.valid_size);
+			}
+			else {
+//HTC_END
 			rc = camera_io_dev_read_seq(&e_ctrl->io_master_info,
 				emap[j].mem.addr, memptr,
 				emap[j].mem.addr_type,
 				emap[j].mem.data_type,
 				emap[j].mem.valid_size);
+//HTC_START
+			}
+//HTC_END
 			if (rc) {
 				CAM_ERR(CAM_EEPROM, "read failed rc %d",
 					rc);
@@ -221,7 +699,7 @@ static int cam_eeprom_power_down(struct cam_eeprom_ctrl_t *e_ctrl)
 		CAM_ERR(CAM_EEPROM, "failed: power_info %pK", power_info);
 		return -EINVAL;
 	}
-	rc = msm_camera_power_down(power_info, soc_info);
+	rc = cam_sensor_util_power_down(power_info, soc_info);
 	if (rc) {
 		CAM_ERR(CAM_EEPROM, "power down the core is failed:%d", rc);
 		return rc;
@@ -706,6 +1184,15 @@ static int32_t cam_eeprom_pkt_parse(struct cam_eeprom_ctrl_t *e_ctrl, void *arg)
 		(struct cam_eeprom_soc_private *)e_ctrl->soc_info.soc_private;
 	struct cam_sensor_power_ctrl_t *power_info = &soc_private->power_info;
 
+//HTC_START
+	struct device_node *of_node = e_ctrl->soc_info.dev->of_node;
+	struct cam_eeprom_soc_private     *eb_info;
+	uint32_t cellindex = 5; //initialize as 5
+	if (0 > of_property_read_u32(of_node, "cell-index", &cellindex)){
+		CAM_ERR(CAM_EEPROM, "failed to get cell-index from dsti");
+	}
+//HTC_END
+
 	ioctl_ctrl = (struct cam_control *)arg;
 
 	if (copy_from_user(&dev_config, (void __user *) ioctl_ctrl->handle,
@@ -790,6 +1277,107 @@ static int32_t cam_eeprom_pkt_parse(struct cam_eeprom_ctrl_t *e_ctrl, void *arg)
 		e_ctrl->cal_data.num_data = 0;
 		e_ctrl->cal_data.num_map = 0;
 		break;
+//HTC_START
+	case CAM_EEPROM_PACKET_OPCODE_WRITE:
+		if (e_ctrl->userspace_probe == false) {
+			rc = cam_eeprom_parse_read_memory_map(
+					e_ctrl->soc_info.dev->of_node, e_ctrl);
+			if (rc < 0) {
+				CAM_ERR(CAM_EEPROM, "Failed: rc : %d", rc);
+				return rc;
+			}
+			rc = cam_eeprom_get_cal_data(e_ctrl, csl_packet);
+			kfree(e_ctrl->cal_data.mapdata);
+			kfree(e_ctrl->cal_data.map);
+			e_ctrl->cal_data.num_data = 0;
+			e_ctrl->cal_data.num_map = 0;
+			CAM_DBG(CAM_EEPROM,
+				"Returning the data using kernel probe");
+			break;
+		}
+		rc = cam_eeprom_init_pkt_parser(e_ctrl, csl_packet);
+		if (rc) {
+			CAM_ERR(CAM_EEPROM,
+				"Failed in parsing the pkt");
+			return rc;
+		}
+
+		e_ctrl->cal_data.mapdata =
+			kzalloc(e_ctrl->cal_data.num_data, GFP_KERNEL);
+		if (!e_ctrl->cal_data.mapdata) {
+			rc = -ENOMEM;
+			CAM_ERR(CAM_EEPROM, "failed");
+			goto error;
+		}
+
+		rc = cam_eeprom_power_up(e_ctrl,
+			&soc_private->power_info);
+		if (rc) {
+			CAM_ERR(CAM_EEPROM, "failed rc %d", rc);
+			goto memdata_free;
+		}
+
+		e_ctrl->cam_eeprom_state = CAM_EEPROM_CONFIG;
+		eb_info = (struct cam_eeprom_soc_private *)e_ctrl->soc_info.soc_private;
+		cam_eeprom_write_flash(e_ctrl);
+		if( cellindex == 3 ) {
+			eb_info->i2c_info.slave_addr = 0x80;
+			pr_info("[WEEPROM] slave-addr = 0x%X, Write protection off for s5k4h9", eb_info->i2c_info.slave_addr);
+			rc = cam_eeprom_update_i2c_info(e_ctrl,
+				&eb_info->i2c_info);
+			if (rc) {
+				CAM_ERR(CAM_EEPROM,
+					"failed: to update i2c info rc %d",
+					rc);
+				return rc;
+			}
+			cam_eeprom_set_protection(e_ctrl);
+			eb_info->i2c_info.slave_addr = 0xA0;
+			pr_info("[WEEPROM] slave-addr = 0x%X, Change to write s5k4h9 eeprom ", eb_info->i2c_info.slave_addr);
+			rc = cam_eeprom_update_i2c_info(e_ctrl,
+				&eb_info->i2c_info);
+			if (rc) {
+				CAM_ERR(CAM_EEPROM,
+					"failed: to update i2c info rc %d",
+					rc);
+				return rc;
+			}
+		}
+		cam_eeprom_write_dual_camera(e_ctrl);
+		cam_eeprom_write_dual_extrainfo_camera(e_ctrl);
+		if( cellindex == 3 ) {
+			eb_info->i2c_info.slave_addr = 0xF0;
+			pr_info("[WEEPROM] slave-addr = 0x%X, Write protection on for s5k4h9", eb_info->i2c_info.slave_addr);
+			rc = cam_eeprom_update_i2c_info(e_ctrl,
+				&eb_info->i2c_info);
+			if (rc) {
+				CAM_ERR(CAM_EEPROM,
+					"failed: to update i2c info rc %d",
+					rc);
+				return rc;
+			}
+			cam_eeprom_set_protection(e_ctrl);
+			eb_info->i2c_info.slave_addr = 0xA1;
+			pr_info("[WEEPROM] slave-addr = 0x%X, Original slave address", eb_info->i2c_info.slave_addr);
+			rc = cam_eeprom_update_i2c_info(e_ctrl,
+				&eb_info->i2c_info);
+			if (rc) {
+				CAM_ERR(CAM_EEPROM,
+					"failed: to update i2c info rc %d",
+					rc);
+				return rc;
+			}
+		}
+
+		rc = cam_eeprom_get_cal_data(e_ctrl, csl_packet);
+		rc = cam_eeprom_power_down(e_ctrl);
+		e_ctrl->cam_eeprom_state = CAM_EEPROM_ACQUIRE;
+		kfree(e_ctrl->cal_data.mapdata);
+		kfree(e_ctrl->cal_data.map);
+		e_ctrl->cal_data.num_data = 0;
+		e_ctrl->cal_data.num_map = 0;
+		break;
+//HTC_END
 	default:
 		break;
 	}
@@ -884,7 +1472,7 @@ int32_t cam_eeprom_driver_cmd(struct cam_eeprom_ctrl_t *e_ctrl, void *arg)
 			&eeprom_cap,
 			sizeof(struct cam_eeprom_query_cap_t))) {
 			CAM_ERR(CAM_EEPROM, "Failed Copy to User");
-			return -EFAULT;
+			rc = -EFAULT;
 			goto release_mutex;
 		}
 		CAM_DBG(CAM_EEPROM, "eeprom_cap: ID: %d", eeprom_cap.slot_info);

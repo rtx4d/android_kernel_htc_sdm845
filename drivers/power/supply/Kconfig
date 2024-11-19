@@ -511,6 +511,11 @@ config AXP20X_POWER
 	  This driver provides support for the power supply features of
 	  AXP20x PMIC.
 
+config HTC_BATT
+	bool "htc default setting"
+	help
+	  For htc battery related common setting.
+
 config NX30P6093
 	bool "NX30P6093 Moisture detection driver"
 	depends on I2C

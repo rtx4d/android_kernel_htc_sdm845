@@ -127,7 +127,13 @@ void snd_pcm_timer_init(struct snd_pcm_substream *substream)
 	tid.subdevice = (substream->number << 1) | (substream->stream & 1);
 	if (snd_timer_new(substream->pcm->card, "PCM", &tid, &timer) < 0)
 		return;
+/* HTC_AUD_START */
+#if 0
 	sprintf(timer->name, "PCM %s %i-%i-%i",
+#else
+	snprintf(timer->name, sizeof(timer->name), "PCM %s %i-%i-%i",
+#endif
+/* HTC_AUD_END */
 			substream->stream == SNDRV_PCM_STREAM_CAPTURE ?
 				"capture" : "playback",
 			tid.card, tid.device, tid.subdevice);

@@ -17,6 +17,96 @@
 #include "cam_soc_util.h"
 #include "cam_trace.h"
 
+/*HTC_START*/
+#include "lc898123F40_htc.h"
+/*HTC_END*/
+
+/* HTC_START */
+static struct cam_sensor_ctrl_t *g_maincam_imx351_ctrl = NULL;
+static struct cam_sensor_ctrl_t *g_maincam_imx363_ctrl = NULL;
+static struct cam_sensor_ctrl_t *g_frontcam_s5k4h9m_ctrl = NULL;
+static struct cam_sensor_ctrl_t *g_frontcam_s5k4h9s_ctrl = NULL;
+/* HTC_END */
+
+/*HTC_START*/
+#define OIS_COMPONENT_I2C_ADDR_WRITE 0x7C
+
+int htc_ois_FWupdate(struct cam_sensor_ctrl_t *s_ctrl)
+{
+	int rc = -1;
+	uint16_t cci_client_sid_backup;
+	static int m_first = 0;
+
+	/* Backup the I2C slave address */
+	cci_client_sid_backup = s_ctrl->io_master_info.cci_client->sid;
+
+	/* Replace the I2C slave address with OIS component */
+	s_ctrl->io_master_info.cci_client->sid = OIS_COMPONENT_I2C_ADDR_WRITE >> 1;
+
+	//pr_info("[OIS_Cali]%s: index=%d name=%s", __func__,  s_ctrl->soc_info.index, s_ctrl->soc_info.dev_name);
+
+	if (m_first == 0 && s_ctrl->soc_info.index == 0)
+	{
+		rc = htc_checkFWUpdate(&(s_ctrl->io_master_info));
+		m_first = 1;
+	}
+
+	/* Restore the I2C slave address */
+	s_ctrl->io_master_info.cci_client->sid = cci_client_sid_backup;
+
+	return rc;
+}
+
+int htc_ois_standby(struct cam_sensor_ctrl_t *s_ctrl)
+{
+	int rc = 0, i;
+	uint16_t cci_client_sid_backup;
+	UINT_16 RamAddr = 0xF01F;
+	UINT_32 RamData = 0x00000003;
+	uint8_t data[4] = {0,0,0,0};
+	struct camera_io_master *io_master_info = &(s_ctrl->io_master_info);
+	struct cam_sensor_i2c_reg_setting  i2c_reg_settings;
+	struct cam_sensor_i2c_reg_array    i2c_reg_array[4];
+
+	pr_info("[OIS_Cali]%s: Enter", __func__);
+
+	/* Backup the I2C slave address */
+	cci_client_sid_backup = s_ctrl->io_master_info.cci_client->sid;
+
+	/* Replace the I2C slave address with OIS component */
+	s_ctrl->io_master_info.cci_client->sid = OIS_COMPONENT_I2C_ADDR_WRITE >> 1;
+
+	/* Write ois standy setting */
+	data[0] = (RamData >> 24) & 0xFF;
+	data[1] = (RamData >> 16) & 0xFF;
+	data[2] = (RamData >> 8)  & 0xFF;
+	data[3] = (RamData) & 0xFF;
+
+	i2c_reg_settings.addr_type = 2;
+	i2c_reg_settings.data_type = 1;
+	i2c_reg_settings.size = 4;
+
+	for(i = 0; i < i2c_reg_settings.size; i++) {
+		i2c_reg_array[i].reg_addr = RamAddr;
+		i2c_reg_array[i].reg_data = data[i];
+		i2c_reg_array[i].delay = 0;
+	}
+
+	i2c_reg_settings.reg_setting = &i2c_reg_array[0];
+	i2c_reg_settings.delay = 1;
+
+	rc = camera_io_dev_write_continuous(io_master_info, &i2c_reg_settings, 0);
+
+	/* Restore the I2C slave address */
+	s_ctrl->io_master_info.cci_client->sid = cci_client_sid_backup;
+
+	pr_info("[OIS_Cali]%s: Exit, rc = %d", __func__, rc);
+
+	return rc;
+}
+/*HTC_END*/
+
+
 static void cam_sensor_update_req_mgr(
 	struct cam_sensor_ctrl_t *s_ctrl,
 	struct cam_packet *csl_packet)
@@ -62,29 +152,11 @@ static void cam_sensor_release_stream_rsc(
 	}
 }
 
-static void cam_sensor_release_resource(
+static void cam_sensor_release_per_frame_resource(
 	struct cam_sensor_ctrl_t *s_ctrl)
 {
 	struct i2c_settings_array *i2c_set = NULL;
 	int i, rc;
-
-	i2c_set = &(s_ctrl->i2c_data.init_settings);
-	if (i2c_set->is_settings_valid == 1) {
-		i2c_set->is_settings_valid = -1;
-		rc = delete_request(i2c_set);
-		if (rc < 0)
-			CAM_ERR(CAM_SENSOR,
-				"failed while deleting Init settings");
-	}
-
-	i2c_set = &(s_ctrl->i2c_data.config_settings);
-	if (i2c_set->is_settings_valid == 1) {
-		i2c_set->is_settings_valid = -1;
-		rc = delete_request(i2c_set);
-		if (rc < 0)
-			CAM_ERR(CAM_SENSOR,
-				"failed while deleting Res settings");
-	}
 
 	if (s_ctrl->i2c_data.per_frame != NULL) {
 		for (i = 0; i < MAX_PER_FRAME_ARRAY; i++) {
@@ -195,6 +267,19 @@ static int32_t cam_sensor_i2c_pkt_parse(struct cam_sensor_ctrl_t *s_ctrl,
 			csl_packet->header.request_id % MAX_PER_FRAME_ARRAY,
 			csl_packet->header.request_id);
 		if (i2c_reg_settings->is_settings_valid == 1) {
+/* HTC_MODIFY, Force to apply this setting even there is a older request in queue */
+#if 1
+			/*CAM_ERR(CAM_SENSOR,
+				"Already some pkt in offset req : %lld, but still apply new request",
+				csl_packet->header.request_id);*/
+			rc = delete_request(i2c_reg_settings);
+			if (rc < 0) {
+				CAM_ERR(CAM_SENSOR,
+				"Failed in Deleting the err: %d", rc);
+				cam_sensor_update_req_mgr(s_ctrl, csl_packet);
+				return 0;
+			}
+#else
 			CAM_ERR(CAM_SENSOR,
 				"Already some pkt in offset req : %lld",
 				csl_packet->header.request_id);
@@ -206,8 +291,10 @@ static int32_t cam_sensor_i2c_pkt_parse(struct cam_sensor_ctrl_t *s_ctrl,
 			 */
 			cam_sensor_update_req_mgr(s_ctrl, csl_packet);
 			return 0;
+#endif
 		}
 		break;
+
 	}
 	case CAM_SENSOR_PACKET_OPCODE_SENSOR_NOP: {
 		if ((s_ctrl->sensor_state == CAM_SENSOR_INIT) ||
@@ -499,14 +586,20 @@ void cam_sensor_shutdown(struct cam_sensor_ctrl_t *s_ctrl)
 		&s_ctrl->sensordata->power_info;
 	int rc = 0;
 
+//HTC_START
+	CAM_INFO(CAM_SENSOR, "cam_sensor_shutdown");
+//HTC_END
+#if 0//htc comment for IME P bring up
 	if ((s_ctrl->sensor_state == CAM_SENSOR_INIT) &&
 		(s_ctrl->is_probe_succeed == 0))
+#else
+	if (s_ctrl->sensor_state == CAM_SENSOR_INIT)
+#endif
 		return;
 
-	cam_sensor_release_resource(s_ctrl);
 	cam_sensor_release_stream_rsc(s_ctrl);
-	if (s_ctrl->sensor_state >= CAM_SENSOR_ACQUIRE)
-		cam_sensor_power_down(s_ctrl);
+	cam_sensor_release_per_frame_resource(s_ctrl);
+	cam_sensor_power_down(s_ctrl);
 
 	rc = cam_destroy_device_hdl(s_ctrl->bridge_intf.device_hdl);
 	if (rc < 0)
@@ -546,7 +639,15 @@ int cam_sensor_match_id(struct cam_sensor_ctrl_t *s_ctrl)
 		&chipid, CAMERA_SENSOR_I2C_TYPE_WORD,
 		CAMERA_SENSOR_I2C_TYPE_WORD);
 
-	CAM_DBG(CAM_SENSOR, "read id: 0x%x expected id 0x%x:",
+	/* HTC_START */
+	if(slave_info->sensor_slave_addr == 0x34 && cam_sensor_id_by_mask(s_ctrl, chipid) == 0x363) {
+		slave_info->sensor_id = 0x363;
+		CAM_INFO(CAM_SENSOR, "match id : 0x%x:", slave_info->sensor_id);
+		return rc;
+	}
+	/* HTC_END */
+
+	CAM_INFO(CAM_SENSOR, "read id: 0x%x expected id 0x%x:",
 			 chipid, slave_info->sensor_id);
 	if (cam_sensor_id_by_mask(s_ctrl, chipid) != slave_info->sensor_id) {
 		CAM_ERR(CAM_SENSOR, "chip id %x does not match %x",
@@ -584,6 +685,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 				"Already Sensor Probed in the slot");
 			break;
 		}
+		CAM_INFO(CAM_SENSOR, "CAM_SENSOR_PROBE_CMD"); //HTC_ADD
 
 		if (cmd->handle_type ==
 			CAM_HANDLE_MEM_HANDLE) {
@@ -670,6 +772,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 			goto release_mutex;
 		}
 
+		CAM_INFO(CAM_SENSOR, "CAM_ACQUIRE_DEV"); //HTC_ADD
 		if (s_ctrl->bridge_intf.device_hdl != -1) {
 			CAM_ERR(CAM_SENSOR, "Device is already acquired");
 			rc = -EINVAL;
@@ -716,6 +819,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 	}
 		break;
 	case CAM_RELEASE_DEV: {
+		CAM_INFO(CAM_SENSOR, "CAM_RELEASE_DEV"); //HTC_ADD
 		if ((s_ctrl->sensor_state == CAM_SENSOR_INIT) ||
 			(s_ctrl->sensor_state == CAM_SENSOR_START)) {
 			rc = -EINVAL;
@@ -731,7 +835,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 			goto release_mutex;
 		}
 
-		cam_sensor_release_resource(s_ctrl);
+		cam_sensor_release_per_frame_resource(s_ctrl);
 		cam_sensor_release_stream_rsc(s_ctrl);
 		if (s_ctrl->bridge_intf.device_hdl == -1) {
 			CAM_ERR(CAM_SENSOR,
@@ -771,6 +875,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 		break;
 	}
 	case CAM_START_DEV: {
+		CAM_INFO(CAM_SENSOR, "CAM_START_DEV"); //HTC_ADD
 		if ((s_ctrl->sensor_state == CAM_SENSOR_INIT) ||
 			(s_ctrl->sensor_state == CAM_SENSOR_START)) {
 			rc = -EINVAL;
@@ -798,6 +903,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 	}
 		break;
 	case CAM_STOP_DEV: {
+		CAM_INFO(CAM_SENSOR, "CAM_STOP_DEV"); //HTC_ADD
 		if (s_ctrl->sensor_state != CAM_SENSOR_START) {
 			rc = -EINVAL;
 			CAM_WARN(CAM_SENSOR,
@@ -816,7 +922,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 			}
 		}
 
-		cam_sensor_release_resource(s_ctrl);
+		cam_sensor_release_per_frame_resource(s_ctrl);
 		s_ctrl->sensor_state = CAM_SENSOR_ACQUIRE;
 		CAM_INFO(CAM_SENSOR,
 			"CAM_STOP_DEV Success, sensor_id:0x%x,sensor_slave_addr:0x%x",
@@ -918,6 +1024,8 @@ int cam_sensor_establish_link(struct cam_req_mgr_core_dev_link_setup *link)
 		CAM_ERR(CAM_SENSOR, "Device data is NULL");
 		return -EINVAL;
 	}
+
+	mutex_lock(&s_ctrl->cam_sensor_mutex);
 	if (link->link_enable) {
 		s_ctrl->bridge_intf.link_hdl = link->link_hdl;
 		s_ctrl->bridge_intf.crm_cb = link->crm_cb;
@@ -925,6 +1033,7 @@ int cam_sensor_establish_link(struct cam_req_mgr_core_dev_link_setup *link)
 		s_ctrl->bridge_intf.link_hdl = -1;
 		s_ctrl->bridge_intf.crm_cb = NULL;
 	}
+	mutex_unlock(&s_ctrl->cam_sensor_mutex);
 
 	return 0;
 }
@@ -951,6 +1060,7 @@ int cam_sensor_power_up(struct cam_sensor_ctrl_t *s_ctrl)
 	struct cam_hw_soc_info *soc_info =
 		&s_ctrl->soc_info;
 
+	CAM_WARN(CAM_SENSOR, "P_cam_driver");//htc added
 	if (!s_ctrl) {
 		CAM_ERR(CAM_SENSOR, "failed: %pK", s_ctrl);
 		return -EINVAL;
@@ -980,9 +1090,32 @@ int cam_sensor_power_up(struct cam_sensor_ctrl_t *s_ctrl)
 		return rc;
 	}
 
+/* HTC_START */
+	CAM_INFO(CAM_SENSOR, "[DualCam] sensor_id : 0x%x , sensor_slave_addr : 0x%x",
+		s_ctrl->sensordata->slave_info.sensor_id, s_ctrl->sensordata->slave_info.sensor_slave_addr);
+
+	if (s_ctrl->sensordata->slave_info.sensor_id == 0x0333 || s_ctrl->sensordata->slave_info.sensor_id == 0x0363) {
+		g_maincam_imx363_ctrl = s_ctrl;
+		CAM_INFO(CAM_SENSOR, "[DualCam] open camera : main-cam IMX363");
+	} else if (s_ctrl->sensordata->slave_info.sensor_id == 0x0351) {
+		g_maincam_imx351_ctrl = s_ctrl;
+		CAM_INFO(CAM_SENSOR, "[DualCam] open camera : main-cam IMX351");
+	} else if (s_ctrl->sensordata->slave_info.sensor_id == 0x4089 && s_ctrl->sensordata->slave_info.sensor_slave_addr == 0x20) {
+		g_frontcam_s5k4h9m_ctrl = s_ctrl;
+		CAM_INFO(CAM_SENSOR, "[DualCam] open camera : front-cam S5K4H9M");
+	} else if (s_ctrl->sensordata->slave_info.sensor_id == 0x4089 && s_ctrl->sensordata->slave_info.sensor_slave_addr == 0x5a) {
+		g_frontcam_s5k4h9s_ctrl = s_ctrl;
+		CAM_INFO(CAM_SENSOR, "[DualCam] open camera : front-cam S5K4H9S");
+	}
+/* HTC_END */
+
 	rc = camera_io_init(&(s_ctrl->io_master_info));
 	if (rc < 0)
 		CAM_ERR(CAM_SENSOR, "cci_init failed: rc: %d", rc);
+
+	/*HTC_START*/
+		htc_ois_FWupdate(s_ctrl);
+	/*HTC_END*/
 
 	return rc;
 }
@@ -1005,7 +1138,24 @@ int cam_sensor_power_down(struct cam_sensor_ctrl_t *s_ctrl)
 		CAM_ERR(CAM_SENSOR, "failed: power_info %pK", power_info);
 		return -EINVAL;
 	}
-	rc = msm_camera_power_down(power_info, soc_info);
+
+/* HTC_START */
+	if (s_ctrl->sensordata->slave_info.sensor_id == 0x0333 || s_ctrl->sensordata->slave_info.sensor_id == 0x0363) {
+		g_maincam_imx363_ctrl = NULL;
+		CAM_INFO(CAM_SENSOR, "[DualCam] close camera : main-cam IMX363");
+	} else if (s_ctrl->sensordata->slave_info.sensor_id == 0x0351) {
+		g_maincam_imx351_ctrl = NULL;
+		CAM_INFO(CAM_SENSOR, "[DualCam] close camera : main-cam IMX351");
+	} else if (s_ctrl->sensordata->slave_info.sensor_id == 0x4089 && s_ctrl->sensordata->slave_info.sensor_slave_addr == 0x20) {
+		g_frontcam_s5k4h9m_ctrl = NULL;
+		CAM_INFO(CAM_SENSOR, "[DualCam] close camera : front-cam S5K4H9M");
+	} else if (s_ctrl->sensordata->slave_info.sensor_id == 0x4089 && s_ctrl->sensordata->slave_info.sensor_slave_addr == 0x5a) {
+		g_frontcam_s5k4h9s_ctrl = NULL;
+		CAM_INFO(CAM_SENSOR, "[DualCam] close camera : front-cam S5K4H9S");
+	}
+/* HTC_END */
+
+	rc = cam_sensor_util_power_down(power_info, soc_info);
 	if (rc < 0) {
 		CAM_ERR(CAM_SENSOR, "power down the core is failed:%d", rc);
 		return rc;
@@ -1060,6 +1210,36 @@ int cam_sensor_apply_settings(struct cam_sensor_ctrl_t *s_ctrl,
 		if (i2c_set->is_settings_valid == 1) {
 			list_for_each_entry(i2c_list,
 				&(i2c_set->list_head), list) {
+
+/* HTC_START */
+				if (opcode == CAM_SENSOR_PACKET_OPCODE_SENSOR_STREAMON) {
+					if (s_ctrl->sensordata->slave_info.sensor_id == 0x0333 || s_ctrl->sensordata->slave_info.sensor_id == 0x0363) {
+							CAM_INFO(CAM_SENSOR, "[DualCam] STREAMON : main-cam IMX363");
+					} else if (s_ctrl->sensordata->slave_info.sensor_id == 0x0351) {
+							CAM_INFO(CAM_SENSOR, "[DualCam] STREAMON : main-cam IMX351");
+					} else if (s_ctrl->sensordata->slave_info.sensor_id == 0x4089 && s_ctrl->sensordata->slave_info.sensor_slave_addr == 0x20) {
+							CAM_INFO(CAM_SENSOR, "[DualCam] STREAMON : front-cam S5K4H9M");
+					} else if (s_ctrl->sensordata->slave_info.sensor_id == 0x4089 && s_ctrl->sensordata->slave_info.sensor_slave_addr == 0x5a) {
+							rc = htc_ois_standby(s_ctrl);
+							if (rc < 0) {
+								CAM_ERR(CAM_SENSOR, "[OIS_Cali]Failed to apply ois standby setting: %d", rc);
+							}
+							CAM_INFO(CAM_SENSOR, "[DualCam] STREAMON : front-cam S5K4H9S");
+					}
+				}
+				if (opcode == CAM_SENSOR_PACKET_OPCODE_SENSOR_STREAMOFF) {
+					if (s_ctrl->sensordata->slave_info.sensor_id == 0x0333 || s_ctrl->sensordata->slave_info.sensor_id == 0x0363) {
+							CAM_INFO(CAM_SENSOR, "[DualCam] STREAMOFF : main-cam IMX363");
+					} else if (s_ctrl->sensordata->slave_info.sensor_id == 0x0351) {
+							CAM_INFO(CAM_SENSOR, "[DualCam] STREAMOFF : main-cam IMX351");
+					} else if (s_ctrl->sensordata->slave_info.sensor_id == 0x4089 && s_ctrl->sensordata->slave_info.sensor_slave_addr == 0x20) {
+							CAM_INFO(CAM_SENSOR, "[DualCam] STREAMOFF : front-cam S5K4H9M");
+					} else if (s_ctrl->sensordata->slave_info.sensor_id == 0x4089 && s_ctrl->sensordata->slave_info.sensor_slave_addr == 0x5a) {
+							CAM_INFO(CAM_SENSOR, "[DualCam] STREAMOFF : front-cam S5K4H9S");
+					}
+				}
+/* HTC_END */
+
 				rc = cam_sensor_i2c_modes_util(
 					&(s_ctrl->io_master_info),
 					i2c_list);
@@ -1078,6 +1258,27 @@ int cam_sensor_apply_settings(struct cam_sensor_ctrl_t *s_ctrl,
 			i2c_set->request_id == req_id) {
 			list_for_each_entry(i2c_list,
 				&(i2c_set->list_head), list) {
+
+/* HTC_START */
+//TODO : Need to implement the AE update for HW frame sync of bokeh case
+#if 0
+				//CAM_INFO(CAM_SENSOR, "[DualCam]   req_id!=0   opcode = %d   req_id=%ld", opcode, (long int)req_id);
+				//CAM_INFO(CAM_SENSOR, "[DualCam]   i2c_list->i2c_settings.size = %d", i2c_list->i2c_settings.size);
+
+				if (opcode == CAM_SENSOR_PACKET_OPCODE_SENSOR_UPDATE) {
+					if (s_ctrl->sensordata->slave_info.sensor_id == 0x0333 || s_ctrl->sensordata->slave_info.sensor_id == 0x0363) {
+						CAM_INFO(CAM_SENSOR, "[DualCam] AE update : main-cam IMX363");
+					} else if (s_ctrl->sensordata->slave_info.sensor_id == 0x0351) {
+						CAM_INFO(CAM_SENSOR, "[DualCam] AE update : main-cam IMX351");
+					} else if (s_ctrl->sensordata->slave_info.sensor_id == 0x4089 && s_ctrl->sensordata->slave_info.sensor_slave_addr == 0x20) {
+						CAM_INFO(CAM_SENSOR, "[DualCam] AE update : front-cam S5K4H9M");
+					} else if (s_ctrl->sensordata->slave_info.sensor_id == 0x4089 && s_ctrl->sensordata->slave_info.sensor_slave_addr == 0x5a) {
+						CAM_INFO(CAM_SENSOR, "[DualCam] AE update : front-cam S5K4H9S");
+					}
+				}
+#endif
+/* HTC_END */
+
 				rc = cam_sensor_i2c_modes_util(
 					&(s_ctrl->io_master_info),
 					i2c_list);
@@ -1155,8 +1356,10 @@ int32_t cam_sensor_apply_request(struct cam_req_mgr_apply_request *apply)
 	}
 	CAM_DBG(CAM_REQ, " Sensor update req id: %lld", apply->request_id);
 	trace_cam_apply_req("Sensor", apply->request_id);
+	mutex_lock(&(s_ctrl->cam_sensor_mutex));
 	rc = cam_sensor_apply_settings(s_ctrl, apply->request_id,
 		CAM_SENSOR_PACKET_OPCODE_SENSOR_UPDATE);
+	mutex_unlock(&(s_ctrl->cam_sensor_mutex));
 	return rc;
 }
 
@@ -1190,7 +1393,9 @@ int32_t cam_sensor_flush_request(struct cam_req_mgr_flush_request *flush_req)
 			continue;
 
 		if (i2c_set->is_settings_valid == 1) {
+			mutex_lock(&(s_ctrl->cam_sensor_mutex));
 			rc = delete_request(i2c_set);
+			mutex_unlock(&(s_ctrl->cam_sensor_mutex));
 			if (rc < 0)
 				CAM_ERR(CAM_SENSOR,
 					"delete request: %lld rc: %d",

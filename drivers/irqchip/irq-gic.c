@@ -42,6 +42,7 @@
 #include <linux/irqchip/chained_irq.h>
 #include <linux/irqchip/arm-gic.h>
 #include <linux/msm_rtb.h>
+#include <linux/htc_debug_tools.h>
 
 #include <asm/cputype.h>
 #include <asm/irq.h>
@@ -361,6 +362,9 @@ static void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
 		irqnr = irqstat & GICC_IAR_INT_ID_MASK;
 
 		if (likely(irqnr > 15 && irqnr < 1020)) {
+#if defined(CONFIG_HTC_DEBUG_RTB)
+			uncached_logk_pc(LOGK_IRQ, (void *)(uintptr_t)htc_debug_get_sched_clock_ms(), (void *)(uintptr_t)irqnr);
+#endif /* CONFIG_HTC_DEBUG_RTB */
 			if (static_key_true(&supports_deactivate))
 				writel_relaxed_no_log(irqstat,
 						cpu_base + GIC_CPU_EOI);
@@ -370,6 +374,9 @@ static void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
 		}
 		if (irqnr < 16) {
 			writel_relaxed_no_log(irqstat, cpu_base + GIC_CPU_EOI);
+#if defined(CONFIG_HTC_DEBUG_RTB)
+			uncached_logk_pc(LOGK_IRQ, (void *)(uintptr_t)htc_debug_get_sched_clock_ms(), (void *)(uintptr_t)irqnr);
+#endif /* CONFIG_HTC_DEBUG_RTB */
 			if (static_key_true(&supports_deactivate))
 				writel_relaxed_no_log(irqstat,
 						cpu_base + GIC_CPU_DEACTIVATE);

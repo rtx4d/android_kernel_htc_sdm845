@@ -18,6 +18,153 @@
 #include "cam_sensor_util.h"
 #include "cam_debug_util.h"
 #include "cam_res_mgr_api.h"
+//HTC_START, Use vendor poll method
+#include "PhoneUpdate.h"
+#include <linux/kthread.h>
+#include <linux/ktime.h>
+#include <linux/hrtimer.h>
+
+DEFINE_MSM_MUTEX(msm_ois_mutex);
+static struct ois_timer ois_timer_t;
+//HTC_END
+
+
+static int32_t msm_ois_get_status(struct cam_ois_ctrl_t *o_ctrl)
+{
+    uint8_t buf_status[8] = { 0 };
+    uint8_t Tri_state = 0;
+    int32_t rc = 0;
+
+
+    rc = cam_camera_cci_i2c_read_seq(o_ctrl->io_master_info.cci_client, 0xF120, &buf_status[0], 
+		CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE, 4);
+	if (rc != 0) {
+		pr_err("[OISDBG] %s : i2c_read_seq fail.\n", __func__);
+	} else {
+        if (buf_status[2] & 0x40)//1000000
+        {
+            //CAM_ERR(CAM_OIS, "[OISDBG]Bit[14]: Tripod state = 1");
+            Tri_state = 1;
+        }
+        else
+        {
+            //CAM_ERR(CAM_OIS, "[OISDBG]Bit[14]: Tripod state = 0");
+            Tri_state = 0;
+        }
+    }
+    return Tri_state;
+}
+
+/*ioctl from userspace.
+*Get ois gyro readout data from ring buffer.
+*/
+static int32_t msm_ois_get_gyro(struct cam_ois_ctrl_t *o_ctrl, struct cam_packet *csl_packet)
+{
+	struct msm_ois_readout gyro_data[MAX_GYRO_QUERY_SIZE];
+	int i;
+	int rc = 0;
+	uint64_t              buf_addr;
+	size_t                buf_size;
+	struct cam_buf_io_cfg *io_cfg;
+	uint8_t               *read_buffer;
+
+	#if 0
+	uint8_t query_size = gyro->query_size <= MAX_GYRO_QUERY_SIZE ?
+		gyro->query_size : MAX_GYRO_QUERY_SIZE;
+	#else
+	int query_size = MAX_GYRO_QUERY_SIZE;
+	#endif
+
+	uint8_t data_get_count = 0;
+	uint16_t counter = 0;
+
+	memset(gyro_data, 0, sizeof(gyro_data));
+
+	mutex_lock(&ois_gyro_mutex);
+
+	if (o_ctrl->buf.buffer_tail < MSM_OIS_DATA_BUFFER_SIZE &&
+		o_ctrl->buf.buffer_tail != o_ctrl->buf.buffer_head) {
+		for (counter = 0; counter < query_size; counter++) {
+			gyro_data[counter].ois_x_shift =
+				o_ctrl->buf.buffer[o_ctrl->buf.buffer_head]
+				.ois_x_shift;
+			gyro_data[counter].ois_y_shift =
+				o_ctrl->buf.buffer[o_ctrl->buf.buffer_head]
+				.ois_y_shift;
+			gyro_data[counter].readout_time =
+				o_ctrl->buf.buffer[o_ctrl->buf.buffer_head]
+				.readout_time;
+
+#if 0
+			CAM_INFO(CAM_OIS, "[OISDBG][Get] readout_time = %lld, x_shift = %d, y_shift = %d",
+				gyro_data[counter].readout_time,
+				gyro_data[counter].ois_x_shift,
+				gyro_data[counter].ois_y_shift);
+#endif
+			o_ctrl->buf.buffer_head++;
+			data_get_count++;
+
+			if (o_ctrl->buf.buffer_head >=
+				MSM_OIS_DATA_BUFFER_SIZE)
+				o_ctrl->buf.buffer_head -=
+					MSM_OIS_DATA_BUFFER_SIZE;
+
+			if (o_ctrl->buf.buffer_head ==
+				o_ctrl->buf.buffer_tail) {
+				//ois_pr_dbg("[OISDBG]:%s head == tail\n",
+					//__func__);
+				break;
+			}
+		}
+	}
+	if (data_get_count != 0 && data_get_count <
+		MAX_GYRO_QUERY_SIZE + 1) {
+
+		io_cfg = (struct cam_buf_io_cfg *) ((uint8_t *)
+			&csl_packet->payload +
+			csl_packet->io_configs_offset);
+
+		for (i = 0; i < csl_packet->num_io_configs; i++) {
+			//CAM_ERR(CAM_OIS, "[OISDBG]Direction: %d:", io_cfg->direction);
+			if (io_cfg->direction == CAM_BUF_OUTPUT) {
+				rc = cam_mem_get_cpu_buf(io_cfg->mem_handle[0],
+					(uint64_t *)&buf_addr, &buf_size);
+				//CAM_ERR(CAM_OIS, "[OISDBG]buf_addr : %pK, buf_size : %zu\n",
+					//(void *)buf_addr, buf_size);
+
+				read_buffer = (uint8_t *)buf_addr;
+				if (!read_buffer) {
+					CAM_ERR(CAM_OIS,
+						"[OISDBG]invalid buffer to copy data");
+					mutex_unlock(&ois_gyro_mutex);
+					return -EINVAL;
+				}
+				read_buffer += io_cfg->offsets[0];
+#if 0
+				if (buf_size < e_ctrl->cal_data.num_data) {
+					CAM_ERR(CAM_OIS,
+						"[OISDBG]failed to copy, Invalid size");
+					return -EINVAL;
+				}
+#endif
+				memcpy(read_buffer, gyro_data, data_get_count * sizeof(struct msm_ois_readout));
+
+			} else {
+				CAM_ERR(CAM_EEPROM, "Invalid direction");
+				rc = -EINVAL;
+			}
+		}
+	}
+	//CAM_ERR(CAM_OIS, "[OISDBG][Get]count = %d", data_get_count);
+	mutex_unlock(&ois_gyro_mutex);
+	if(rc != 0)
+	{
+		CAM_ERR(CAM_OIS, "[OISDBG][Get]rc = %d", rc);
+		data_get_count = rc;
+	}
+	return data_get_count;
+}
+
 
 int32_t cam_ois_construct_default_power_setting(
 	struct cam_sensor_power_ctrl_t *power_info)
@@ -60,6 +207,191 @@ free_power_settings:
 	return rc;
 }
 
+
+//HTC_START
+int msm_stopGyroThread(void)
+{
+	CAM_INFO(CAM_OIS, "[OISDBG] E");
+	if ((ois_timer_t.ois_timer_state == OIS_TIME_ACTIVE) ||
+		(ois_timer_t.ois_timer_state == OIS_TIME_ERROR)) {
+		pr_info("[OISDBG] %s:timer cancel.\n", __func__);
+		hrtimer_cancel(&ois_timer_t.hr_timer);
+		destroy_workqueue(ois_timer_t.ois_wq);
+		ois_timer_t.ois_timer_state = OIS_TIME_INACTIVE;
+	} else
+		pr_err("[OISDBG] invalid timer state = %d\n",
+			ois_timer_t.ois_timer_state);
+	CAM_INFO(CAM_OIS, "[OISDBG] X");
+	return 0;
+}
+
+/*Enqueue ois gyro readout data via i2c command.*/
+bool msm_ois_data_enqueue(int64_t readout_time,
+						int16_t x_shift,
+						int16_t y_shift,
+					struct msm_ois_readout_buffer *o_buf)
+{
+	bool rc;
+
+	mutex_lock(&ois_gyro_mutex);
+
+	if (o_buf->buffer_tail >= 0 && o_buf->buffer_tail <
+		MSM_OIS_DATA_BUFFER_SIZE) {
+		o_buf->buffer[o_buf->buffer_tail].ois_x_shift = x_shift;
+		o_buf->buffer[o_buf->buffer_tail].ois_y_shift = y_shift;
+		o_buf->buffer[o_buf->buffer_tail].readout_time = readout_time;
+
+	#if 0
+	CAM_INFO(CAM_OIS, "[OISDBG][EnQ] readout_time = %lld, x_shift = %d, y_shift = %d",
+		o_buf->buffer[o_buf->buffer_tail].readout_time,
+		o_buf->buffer[o_buf->buffer_tail].ois_x_shift,
+		o_buf->buffer[o_buf->buffer_tail].ois_y_shift);
+	#endif
+
+		o_buf->buffer_tail++;
+		if (o_buf->buffer_tail >= MSM_OIS_DATA_BUFFER_SIZE)
+			o_buf->buffer_tail -= MSM_OIS_DATA_BUFFER_SIZE;
+
+		rc = true;
+
+	} else {
+		rc = false;
+	}
+	mutex_unlock(&ois_gyro_mutex);
+	return rc;
+}
+
+/*Get OIS gyro data via i2c.*/
+static void msm_ois_read_work(struct work_struct *work)
+{
+	uint8_t buf[8] = { 0 };
+	int32_t rc = 0;
+	int16_t x_shift, y_shift;
+	struct timespec ts;
+	int64_t readout_time;
+	bool result;
+	struct ois_timer *ois_timer_in_t;
+	//CAM_ERR(CAM_OIS, "[OISDBG] %s ", __func__);
+
+	/*
+	struct sched_param param = { .sched_priority = 75 };
+	sched_setscheduler(current, SCHED_FIFO, &param);
+	*/
+	ois_timer_in_t = container_of(work, struct ois_timer, g_work);
+	get_monotonic_boottime(&ts);
+
+	rc = cam_camera_cci_i2c_read_seq(ois_timer_in_t->o_ctrl->io_master_info.cci_client, 0xE001, &buf[0], 
+		CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE, 8);
+
+	if (rc != 0) {
+		ois_timer_t.i2c_fail_count++;
+		pr_err("[OISDBG] %s : i2c_read_seq fail. cnt = %d\n",
+			__func__, ois_timer_t.i2c_fail_count);
+		if (ois_timer_t.i2c_fail_count == MAX_FAIL_CNT) {
+			pr_err("[OISDBG] %s : Too many i2c failed. Stop timer.\n",
+				__func__);
+			ois_timer_t.ois_timer_state = OIS_TIME_ERROR;
+		}
+	} else {
+		ois_timer_t.i2c_fail_count = 0;
+		readout_time = (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+
+		x_shift = (int16_t)(((uint16_t)buf[2] << 8) + (uint16_t)buf[3]);
+		y_shift = (int16_t)(((uint16_t)buf[4] << 8) + (uint16_t)buf[5]);
+		//CAM_ERR(CAM_OIS, "[OISDBG][E001] readout_time = %lld, x_shift = %d, y_shift = %d", readout_time, x_shift, y_shift);
+		//CAM_ERR(CAM_OIS, "[OISDBG][E001] readout_time = %lld, %02X%02X%02X%02X%02X%02X", readout_time, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
+		//CAM_ERR(CAM_OIS, "[OISDBG][E001] readout_time = %lld, %02X%02X%02X%02X%02X%02X%02X%02X",
+            //readout_time, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7]);
+
+		result = msm_ois_data_enqueue(readout_time, x_shift,
+			y_shift, &ois_timer_in_t->o_ctrl->buf);
+		if (!result)
+			pr_err("%s %d ois data enqueue ring buffer failed\n",
+				__func__, __LINE__);
+	}
+}
+
+static enum hrtimer_restart msm_gyro_timer(struct hrtimer *timer)
+{
+	ktime_t currtime, interval;
+	struct ois_timer *ois_timer_in_t;
+
+	ois_timer_in_t = container_of(timer, struct ois_timer, hr_timer);
+    //CAM_ERR(CAM_OIS, "[OISDBG] %s, cam_ois_state = %d ", __func__, ois_timer_in_t->o_ctrl->cam_ois_state);
+	if ((ois_timer_in_t->o_ctrl->cam_ois_state == CAM_OIS_START)
+		&& (ois_timer_t.ois_timer_state != OIS_TIME_ERROR)) {
+		queue_work(ois_timer_in_t->ois_wq, &ois_timer_in_t->g_work);
+		currtime  = ktime_get();
+		interval = ktime_set(0, READ_OUT_TIME);
+		hrtimer_forward(timer, currtime, interval);
+
+		return HRTIMER_RESTART;
+	} else {
+		CAM_ERR(CAM_OIS, "[OISDBG] %s HRTIMER_NORESTART\n", __func__);
+		return HRTIMER_NORESTART;
+	}
+}
+
+
+int msm_startGyroThread(struct cam_ois_ctrl_t *o_ctrl)
+{
+	ktime_t  ktime;
+
+	pr_info("[OISDBG] %s:E\n", __func__);
+	if (ois_timer_t.ois_timer_state == OIS_TIME_ERROR) {
+		pr_err("[OISDBG] %s:Timer error, close befoe create :%d.\n",
+			__func__, ois_timer_t.ois_timer_state);
+		msm_stopGyroThread();
+	}
+	ois_timer_t.i2c_fail_count = 0;
+	if (ois_timer_t.ois_timer_state != OIS_TIME_ACTIVE) {
+		o_ctrl->io_master_info.cci_client->i2c_freq_mode =
+			I2C_FAST_PLUS_MODE;
+		ois_timer_t.o_ctrl = o_ctrl;
+		INIT_WORK(&ois_timer_t.g_work, msm_ois_read_work);
+		ois_timer_t.ois_wq = create_workqueue("ois_wq");
+		if (!ois_timer_t.ois_wq) {
+			pr_err("[OISDBG]:%s ois_wq create failed.\n", __func__);
+			return -EFAULT;
+		}
+		ktime = ktime_set(0, READ_OUT_TIME);
+		hrtimer_init(&ois_timer_t.hr_timer, CLOCK_MONOTONIC,
+			HRTIMER_MODE_REL);
+		ois_timer_t.hr_timer.function = &msm_gyro_timer;
+		hrtimer_start(&ois_timer_t.hr_timer, ktime,
+			HRTIMER_MODE_REL);
+		ois_timer_t.ois_timer_state = OIS_TIME_ACTIVE;
+	} else
+		pr_err("[OISDBG] invalid timer state = %d.\n",
+			ois_timer_t.ois_timer_state);
+	pr_info("[OISDBG] %s:X\n", __func__);
+	return 0;
+}
+
+#include "lc898123F40_htc.h"
+int htc_ois_calibration(struct cam_ois_ctrl_t *o_ctrl, int cam_id)
+{
+	int rc = -1;
+	CAM_INFO(CAM_OIS, "[OIS_Cali] E cam_id=%d", cam_id);
+
+
+	/*GYRO calibration*/
+	rc = htc_ext_GyroReCalib(&o_ctrl->io_master_info, cam_id);
+	if (rc != 0)
+		CAM_ERR(CAM_OIS, "[OIS_Cali]htc_GyroReCalib fail. rc=%d", rc);
+	else
+	{
+		rc = htc_ext_WrGyroOffsetData();
+		if (rc != 0)
+			CAM_ERR(CAM_OIS, "[OIS_Cali]htc_WrGyroOffsetData fail.\n");
+		else
+			CAM_INFO(CAM_OIS, "[OIS_Cali]Gyro calibration success.");
+		CAM_INFO(CAM_OIS, "[OIS_Cali]htc_GyroReCalib OK");
+	}
+
+	return rc;
+}
+//HTC_END
 
 /**
  * cam_ois_get_dev_handle - get device handle
@@ -193,7 +525,7 @@ static int cam_ois_power_down(struct cam_ois_ctrl_t *o_ctrl)
 		return -EINVAL;
 	}
 
-	rc = msm_camera_power_down(power_info, soc_info);
+	rc = cam_sensor_util_power_down(power_info, soc_info);
 	if (rc) {
 		CAM_ERR(CAM_OIS, "power down the core is failed:%d", rc);
 		return rc;
@@ -209,7 +541,17 @@ static int cam_ois_apply_settings(struct cam_ois_ctrl_t *o_ctrl,
 {
 	struct i2c_settings_list *i2c_list;
 	int32_t rc = 0;
+//HTC_START, Use vendor poll method
+#if 0
+//HTC_END
 	uint32_t i, size;
+//HTC_START, Use vendor poll method
+#else
+	uint8_t UcSndDat = 0;
+	uint32_t UlStCnt = 0;
+	uint32_t CNT100MS = 1352;
+#endif
+//HTC_END
 
 	if (o_ctrl == NULL || i2c_set == NULL) {
 		CAM_ERR(CAM_OIS, "Invalid Args");
@@ -223,6 +565,14 @@ static int cam_ois_apply_settings(struct cam_ois_ctrl_t *o_ctrl,
 
 	list_for_each_entry(i2c_list,
 		&(i2c_set->list_head), list) {
+//HTC_START don't apply empty setting or return failed.
+		if (i2c_list->i2c_settings.size == 1 &&
+			i2c_list->i2c_settings.reg_setting[0].reg_addr == 0 &&
+			i2c_list->i2c_settings.reg_setting[0].reg_data == 0) {
+			CAM_ERR(CAM_OIS, "Got an empty setting, skip it");
+			continue;
+		}
+//HTC_END
 		if (i2c_list->op_code ==  CAM_SENSOR_I2C_WRITE_RANDOM) {
 			rc = camera_io_dev_write(&(o_ctrl->io_master_info),
 				&(i2c_list->i2c_settings));
@@ -232,6 +582,9 @@ static int cam_ois_apply_settings(struct cam_ois_ctrl_t *o_ctrl,
 				return rc;
 			}
 		} else if (i2c_list->op_code == CAM_SENSOR_I2C_POLL) {
+//HTC_START, Use vendor poll method
+#if 0
+//HTC_END
 			size = i2c_list->i2c_settings.size;
 			for (i = 0; i < size; i++) {
 				rc = camera_io_dev_poll(
@@ -248,6 +601,17 @@ static int cam_ois_apply_settings(struct cam_ois_ctrl_t *o_ctrl,
 					return rc;
 				}
 			}
+//HTC_START, Use vendor poll method
+#else
+			do {
+				UcSndDat = F40_RdStatus(1);
+			} while (UcSndDat != 0 && (UlStCnt++ < CNT100MS ));
+			if(UcSndDat == 0)
+				CAM_ERR(CAM_OIS,"[CAM_OIS]Poll success, UcSndDat = %d", UcSndDat);
+			else
+				CAM_ERR(CAM_OIS,"[CAM_OIS]Poll fail, UcSndDat = %d", UcSndDat);
+#endif
+//HTC_END
 		}
 	}
 
@@ -627,6 +991,88 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 			CAM_ERR(CAM_OIS,
 				"Fail deleting Mode data: rc: %d", rc);
 		break;
+//HTC_START
+	case CAM_OIS_PACKET_OPCODE_OIS_CALIBRATION:
+		{
+			int32_t *cam_id = NULL, *return_code = NULL;
+
+			offset = (uint32_t *)&csl_packet->payload;
+			offset += (csl_packet->cmd_buf_offset / sizeof(uint32_t));
+			cmd_desc = (struct cam_cmd_buf_desc *)(offset);
+			rc = cam_mem_get_cpu_buf(cmd_desc[0].mem_handle, (uint64_t *)&generic_ptr, &len_of_buff);
+			if (rc < 0) {
+				CAM_ERR(CAM_OIS, "[OIS_Cali] OIS calibration failed to get cpu buf");
+				return rc;
+			}
+			cmd_buf = (uint32_t *)generic_ptr;
+			cmd_buf += cmd_desc->offset / sizeof(uint32_t);
+			cam_id = (int32_t *)cmd_buf;
+			return_code = (int32_t *)(cmd_buf + 1);
+			*return_code = htc_ois_calibration(o_ctrl, *cam_id);
+		}
+		break;
+	case CAM_OIS_PACKET_OPCODE_OIS_READ_START:
+		{
+			int32_t *return_code = NULL;
+			CAM_INFO(CAM_OIS, "[OISDBG]:CAM_OIS_PACKET_OPCODE_OIS_READ_START");
+
+			offset = (uint32_t *)&csl_packet->payload;
+			offset += (csl_packet->cmd_buf_offset / sizeof(uint32_t));
+			cmd_desc = (struct cam_cmd_buf_desc *)(offset);
+			rc = cam_mem_get_cpu_buf(cmd_desc[0].mem_handle, (uint64_t *)&generic_ptr, &len_of_buff);
+			if (rc < 0) {
+				CAM_ERR(CAM_OIS, "[OISDBG] OIS calibration failed to get cpu buf");
+				return rc;
+			}
+			cmd_buf = (uint32_t *)generic_ptr;
+			cmd_buf += cmd_desc->offset / sizeof(uint32_t);
+			return_code = (int32_t *)cmd_buf;
+			*return_code = msm_startGyroThread(o_ctrl);
+		}
+		break;
+	case CAM_OIS_PACKET_OPCODE_OIS_READ_END:
+		{
+			int32_t *return_code = NULL;
+			CAM_INFO(CAM_OIS, "[OISDBG]:CAM_OIS_PACKET_OPCODE_OIS_READ_END");
+
+			offset = (uint32_t *)&csl_packet->payload;
+			offset += (csl_packet->cmd_buf_offset / sizeof(uint32_t));
+			cmd_desc = (struct cam_cmd_buf_desc *)(offset);
+			rc = cam_mem_get_cpu_buf(cmd_desc[0].mem_handle, (uint64_t *)&generic_ptr, &len_of_buff);
+			if (rc < 0) {
+				CAM_ERR(CAM_OIS, "[OISDBG] OIS calibration failed to get cpu buf");
+				return rc;
+			}
+			cmd_buf = (uint32_t *)generic_ptr;
+			cmd_buf += cmd_desc->offset / sizeof(uint32_t);
+			return_code = (int32_t *)cmd_buf;
+			*return_code = msm_stopGyroThread();
+		}
+		break;
+     case CAM_OIS_PACKET_OPCODE_OIS_GET_DATA:
+		{
+			int32_t *query_size = NULL;
+			int32_t *OIS_status = NULL;
+
+			offset = (uint32_t *)&csl_packet->payload;
+			offset += (csl_packet->cmd_buf_offset / sizeof(uint32_t));
+			cmd_desc = (struct cam_cmd_buf_desc *)(offset);
+			rc = cam_mem_get_cpu_buf(cmd_desc[0].mem_handle, (uint64_t *)&generic_ptr, &len_of_buff);
+			if (rc < 0) {
+				CAM_ERR(CAM_OIS, "[OISDBG] OIS calibration failed to get cpu buf");
+				return rc;
+			}
+			cmd_buf = (uint32_t *)generic_ptr;
+			cmd_buf += cmd_desc->offset / sizeof(uint32_t);
+			query_size = (int32_t *)cmd_buf;
+			OIS_status = (int32_t *)(cmd_buf + 1);
+
+			*query_size = msm_ois_get_gyro(o_ctrl, csl_packet);
+			*OIS_status = msm_ois_get_status(o_ctrl);
+		}
+		break;
+//HTC_END
+
 	default:
 		break;
 	}
@@ -661,6 +1107,15 @@ void cam_ois_shutdown(struct cam_ois_ctrl_t *o_ctrl)
 		o_ctrl->bridge_intf.link_hdl = -1;
 		o_ctrl->bridge_intf.session_hdl = -1;
 	}
+
+	if (o_ctrl->i2c_mode_data.is_settings_valid == 1)
+		delete_request(&o_ctrl->i2c_mode_data);
+
+	if (o_ctrl->i2c_calib_data.is_settings_valid == 1)
+		delete_request(&o_ctrl->i2c_calib_data);
+
+	if (o_ctrl->i2c_init_data.is_settings_valid == 1)
+		delete_request(&o_ctrl->i2c_init_data);
 
 	kfree(power_info->power_setting);
 	kfree(power_info->power_down_setting);
@@ -779,6 +1234,16 @@ int cam_ois_driver_cmd(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 		power_info->power_down_setting = NULL;
 		power_info->power_down_setting_size = 0;
 		power_info->power_setting_size = 0;
+
+		if (o_ctrl->i2c_mode_data.is_settings_valid == 1)
+			delete_request(&o_ctrl->i2c_mode_data);
+
+		if (o_ctrl->i2c_calib_data.is_settings_valid == 1)
+			delete_request(&o_ctrl->i2c_calib_data);
+
+		if (o_ctrl->i2c_init_data.is_settings_valid == 1)
+			delete_request(&o_ctrl->i2c_init_data);
+
 		break;
 	case CAM_STOP_DEV:
 		if (o_ctrl->cam_ois_state != CAM_OIS_START) {

@@ -745,6 +745,10 @@
 		qcom,resource-name = "bobb1";
 		qcom,regulator-type = "pmic4-bob";
 		qcom,send-defaults;
+		qcom,supported-modes =
+                        <RPMH_REGULATOR_MODE_PASS
+                         RPMH_REGULATOR_MODE_AUTO>;
+		qcom,mode-threshold-currents = <0 200000>;
 
 		pmi8998_bob: regulator-bob {
 			regulator-name = "pmi8998_bob";

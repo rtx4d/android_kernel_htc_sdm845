@@ -17,6 +17,64 @@
 #include "cam_trace.h"
 #include "cam_res_mgr_api.h"
 
+//HTC_START
+#define OIS_COMPONENT_I2C_ADDR_WRITE 0x7C
+int GyroGainRamWrite32A(struct camera_io_master io_master_info, uint16_t RamAddr, uint32_t RamData )
+{
+//Add 32 bit I2C writing function
+	int rc = 0;
+	uint8_t data[4] = {0,0,0,0};
+	struct cam_sensor_i2c_reg_setting  i2c_reg_settings;
+	struct cam_sensor_i2c_reg_array    i2c_reg_array[4];
+	uint16_t cci_client_sid_backup = 0;
+
+	cci_client_sid_backup = io_master_info.cci_client->sid;
+
+	io_master_info.cci_client->sid =
+			OIS_COMPONENT_I2C_ADDR_WRITE >> 1;
+
+	data[0] = (RamData >> 24) & 0xFF;
+	data[1] = (RamData >> 16) & 0xFF;
+	data[2] = (RamData >> 8)  & 0xFF;
+	data[3] = (RamData) & 0xFF;
+
+	i2c_reg_settings.addr_type = 2;
+	i2c_reg_settings.data_type = 1;
+	i2c_reg_settings.size = 4;
+
+	i2c_reg_array[0].reg_addr = RamAddr;
+	i2c_reg_array[0].reg_data = data[0];
+	i2c_reg_array[0].delay = 0;
+
+	i2c_reg_array[1].reg_addr = RamAddr;
+	i2c_reg_array[1].reg_data = data[1];
+	i2c_reg_array[1].delay = 0;
+
+	i2c_reg_array[2].reg_addr = RamAddr;
+	i2c_reg_array[2].reg_data = data[2];
+	i2c_reg_array[2].delay = 0;
+
+	i2c_reg_array[3].reg_addr = RamAddr;
+	i2c_reg_array[3].reg_data = data[3];
+	i2c_reg_array[3].delay = 0;
+
+	i2c_reg_settings.reg_setting = &i2c_reg_array[0];
+
+	i2c_reg_settings.delay = 0;
+
+	rc = camera_io_dev_write_continuous(&io_master_info, &i2c_reg_settings, 0);
+
+	/*rc = io_master_info->i2c_func_tbl->i2c_write_seq(
+		io_master_info, RamAddr, &data[0], 4);*/
+	if (rc < 0)
+		CAM_ERR(CAM_ACTUATOR,"[GyroGain] %s : write failed\n", __func__);
+
+	io_master_info.cci_client->sid = cci_client_sid_backup;
+
+	return rc;
+}
+//HTC_END
+
 int32_t cam_actuator_construct_default_power_setting(
 	struct cam_sensor_power_ctrl_t *power_info)
 {
@@ -141,7 +199,7 @@ static int32_t cam_actuator_power_down(struct cam_actuator_ctrl_t *a_ctrl)
 		CAM_ERR(CAM_ACTUATOR, "failed: power_info %pK", power_info);
 		return -EINVAL;
 	}
-	rc = msm_camera_power_down(power_info, soc_info);
+	rc = cam_sensor_util_power_down(power_info, soc_info);
 	if (rc) {
 		CAM_ERR(CAM_ACTUATOR, "power down the core is failed:%d", rc);
 		return rc;
@@ -301,7 +359,7 @@ int32_t cam_actuator_apply_request(struct cam_req_mgr_apply_request *apply)
 	trace_cam_apply_req("Actuator", apply->request_id);
 
 	CAM_DBG(CAM_ACTUATOR, "Request Id: %lld", apply->request_id);
-
+	mutex_lock(&(a_ctrl->actuator_mutex));
 	if ((apply->request_id ==
 		a_ctrl->i2c_data.per_frame[request_id].request_id) &&
 		(a_ctrl->i2c_data.per_frame[request_id].is_settings_valid)
@@ -312,7 +370,7 @@ int32_t cam_actuator_apply_request(struct cam_req_mgr_apply_request *apply)
 			CAM_ERR(CAM_ACTUATOR,
 				"Failed in applying the request: %lld\n",
 				apply->request_id);
-			return rc;
+			goto release_mutex;
 		}
 	}
 	del_req_id = (request_id +
@@ -327,12 +385,14 @@ int32_t cam_actuator_apply_request(struct cam_req_mgr_apply_request *apply)
 			CAM_ERR(CAM_ACTUATOR,
 				"Fail deleting the req: %d err: %d\n",
 				del_req_id, rc);
-			return rc;
+			goto release_mutex;
 		}
 	} else {
 		CAM_DBG(CAM_ACTUATOR, "No Valid Req to clean Up");
 	}
 
+release_mutex:
+	mutex_unlock(&(a_ctrl->actuator_mutex));
 	return rc;
 }
 
@@ -352,6 +412,8 @@ int32_t cam_actuator_establish_link(
 		CAM_ERR(CAM_ACTUATOR, "Device data is NULL");
 		return -EINVAL;
 	}
+
+	mutex_lock(&(a_ctrl->actuator_mutex));
 	if (link->link_enable) {
 		a_ctrl->bridge_intf.link_hdl = link->link_hdl;
 		a_ctrl->bridge_intf.crm_cb = link->crm_cb;
@@ -359,6 +421,7 @@ int32_t cam_actuator_establish_link(
 		a_ctrl->bridge_intf.link_hdl = -1;
 		a_ctrl->bridge_intf.crm_cb = NULL;
 	}
+	mutex_unlock(&(a_ctrl->actuator_mutex));
 
 	return 0;
 }
@@ -419,6 +482,9 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 	struct cam_cmd_buf_desc   *cmd_desc = NULL;
 	struct cam_actuator_soc_private *soc_private = NULL;
 	struct cam_sensor_power_ctrl_t  *power_info = NULL;
+//HTC_START
+	struct cam_cmd_i2c_random_wr *cam_cmd_i2c_random_wr = NULL;
+//HTC_END
 
 	if (!a_ctrl || !arg) {
 		CAM_ERR(CAM_ACTUATOR, "Invalid Args");
@@ -624,6 +690,23 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 
 		cam_actuator_update_req_mgr(a_ctrl, csl_packet);
 		break;
+//HTC_START
+	case CAM_ACTUATOR_PACKET_GYRO_GAIN:
+		offset = (uint32_t *)&csl_packet->payload;
+		offset += csl_packet->cmd_buf_offset / sizeof(uint32_t);
+		cmd_desc = (struct cam_cmd_buf_desc *)(offset);
+		len_of_buff = 0;
+		rc = cam_mem_get_cpu_buf(cmd_desc[0].mem_handle,
+			(uint64_t *)&generic_ptr, &len_of_buff);
+		cmd_buf = (uint32_t *)generic_ptr;
+		cmd_buf += cmd_desc[i].offset / sizeof(uint32_t);
+		cam_cmd_i2c_random_wr =	(struct cam_cmd_i2c_random_wr *)cmd_buf;
+
+		GyroGainRamWrite32A(a_ctrl->io_master_info, 0x82CC, cam_cmd_i2c_random_wr->random_wr_payload[0].reg_data );
+		GyroGainRamWrite32A(a_ctrl->io_master_info, 0x832C, cam_cmd_i2c_random_wr->random_wr_payload[0].reg_data );
+
+		break;
+//HTC_END
 	}
 
 	return rc;
@@ -891,7 +974,9 @@ int32_t cam_actuator_flush_request(struct cam_req_mgr_flush_request *flush_req)
 			continue;
 
 		if (i2c_set->is_settings_valid == 1) {
+			mutex_lock(&(a_ctrl->actuator_mutex));
 			rc = delete_request(i2c_set);
+			mutex_unlock(&(a_ctrl->actuator_mutex));
 			if (rc < 0)
 				CAM_ERR(CAM_ACTUATOR,
 					"delete request: %lld rc: %d",
