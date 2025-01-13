@@ -36,6 +36,7 @@
 #include <drm/drmP.h>
 #include <drm/drm_edid.h>
 #include <drm/drm_displayid.h>
+#include <drm/drm_dp_helper.h>
 
 #define version_greater(edid, maj, min) \
 	(((edid)->version > (maj)) || \
@@ -1462,17 +1463,17 @@ drm_do_probe_ddc_edid(void *data, u8 *buf, unsigned int block, size_t len)
 		struct i2c_msg msgs[] = {
 			{
 				.addr	= DDC_SEGMENT_ADDR,
-				.flags	= 0,
+				.flags	= 0 | DP_AUX_EDID_READ,
 				.len	= 1,
 				.buf	= &segment,
 			}, {
 				.addr	= DDC_ADDR,
-				.flags	= 0,
+				.flags	= 0 | DP_AUX_EDID_READ,
 				.len	= 1,
 				.buf	= &start,
 			}, {
 				.addr	= DDC_ADDR,
-				.flags	= I2C_M_RD,
+				.flags	= I2C_M_RD | DP_AUX_EDID_READ,
 				.len	= len,
 				.buf	= buf,
 			}
@@ -2032,9 +2033,11 @@ drm_mode_std(struct drm_connector *connector, struct edid *edid,
 	if (hsize == 1366 && vsize == 768 && vrefresh_rate == 60) {
 		mode = drm_cvt_mode(dev, 1366, 768, vrefresh_rate, 0, 0,
 				    false);
-		mode->hdisplay = 1366;
-		mode->hsync_start = mode->hsync_start - 1;
-		mode->hsync_end = mode->hsync_end - 1;
+		if (mode) {
+			mode->hdisplay = 1366;
+			mode->hsync_start = mode->hsync_start - 1;
+			mode->hsync_end = mode->hsync_end - 1;
+		}
 		return mode;
 	}
 

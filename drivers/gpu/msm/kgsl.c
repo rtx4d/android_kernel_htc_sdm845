@@ -44,6 +44,8 @@
 #include "kgsl_compat.h"
 #include "kgsl_pool.h"
 
+#include "kgsl_htc.h"
+
 #undef MODULE_PARAM_PREFIX
 #define MODULE_PARAM_PREFIX "kgsl."
 
@@ -327,7 +329,7 @@ kgsl_mem_entry_destroy(struct kref *kref)
 			    entry->memdesc.sgt->nents, i) {
 			page = sg_page(sg);
 			for (j = 0; j < (sg->length >> PAGE_SHIFT); j++)
-				set_page_dirty(nth_page(page, j));
+				set_page_dirty_lock(nth_page(page, j));
 		}
 	}
 
@@ -395,6 +397,9 @@ static int kgsl_mem_entry_attach_process(struct kgsl_device *device,
 	ret = kgsl_mem_entry_track_gpuaddr(device, process, entry);
 	if (ret) {
 		kgsl_process_private_put(process);
+		spin_lock(&process->mem_lock);
+		kgsl_dump_contextpid_locked(&device->context_idr);
+		spin_unlock(&process->mem_lock);
 		return ret;
 	}
 
@@ -414,6 +419,7 @@ static int kgsl_mem_entry_attach_process(struct kgsl_device *device,
 
 	entry->id = id;
 	entry->priv = process;
+	entry->memdesc.private = process;
 
 	/*
 	 * Map the memory if a GPU address is already assigned, either through
@@ -4802,6 +4808,9 @@ int kgsl_device_platform_probe(struct kgsl_device *device)
 	/* Initialize common sysfs entries */
 	kgsl_pwrctrl_init_sysfs(device);
 
+	/* Initialize htc feature */
+	kgsl_device_htc_init(device);
+
 	return 0;
 
 error_close_mmu:
@@ -4959,6 +4968,8 @@ static int __init kgsl_core_init(void)
 		goto err;
 
 	kgsl_memfree_init();
+
+	kgsl_driver_htc_init(&kgsl_driver.priv);
 
 	return 0;
 

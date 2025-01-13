@@ -1506,7 +1506,7 @@ void drm_mode_convert_to_umode(struct drm_mode_modeinfo *out,
 	out->vrefresh = in->vrefresh;
 	out->flags = in->flags;
 	out->type = in->type;
-	strncpy(out->name, in->name, DRM_DISPLAY_MODE_LEN);
+	strlcpy(out->name, in->name, DRM_DISPLAY_MODE_LEN);
 	out->name[DRM_DISPLAY_MODE_LEN-1] = 0;
 }
 
@@ -1548,7 +1548,7 @@ int drm_mode_convert_umode(struct drm_display_mode *out,
 	out->vrefresh = in->vrefresh;
 	out->flags = in->flags;
 	out->type = in->type;
-	strncpy(out->name, in->name, DRM_DISPLAY_MODE_LEN);
+	strlcpy(out->name, in->name, DRM_DISPLAY_MODE_LEN);
 	out->name[DRM_DISPLAY_MODE_LEN-1] = 0;
 
 	out->status = drm_mode_validate_basic(out);

@@ -316,8 +316,16 @@ intf_registration_failed:
 	cam_cpas_unregister_client(cdm_core->cpas_handle);
 cpas_registration_failed:
 	kfree(cdm_hw->soc_info.soc_private);
+/* HTC_START */
+	// null pointer protection
+	if (cdm_core->work_queue) {
+/* HTC_END */
 	flush_workqueue(cdm_core->work_queue);
 	destroy_workqueue(cdm_core->work_queue);
+/* HTC_START */
+	}
+/* HTC_END */
+
 	mutex_unlock(&cdm_hw->hw_mutex);
 	mutex_destroy(&cdm_hw->hw_mutex);
 soc_load_failed:

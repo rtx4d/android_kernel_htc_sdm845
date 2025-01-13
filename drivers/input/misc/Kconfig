@@ -11,6 +11,8 @@ menuconfig INPUT_MISC
 	  If unsure, say Y.
 
 if INPUT_MISC
+source drivers/input/misc/vl53L0/Kconfig
+source drivers/input/misc/snt8100fsr/Kconfig
 
 config INPUT_88PM860X_ONKEY
 	tristate "88PM860x ONKEY support"
@@ -879,6 +881,19 @@ config INPUT_DRV2667_HAPTICS
 	  To compile this driver as a module, choose M here: the
 	  module will be called drv2667-haptics.
 
+config INPUT_DW7912
+        tristate "Vibrator driver for dw7912"
+        depends on I2C
+        help
+          This enables support for Vibrator driver for dw7912 I2C based vibrator.
+
+config INPUT_DW7912_VOLTAGE_SWITCH_WA
+        tristate "DW7912 vibrator driver's HW WA configuration setting"
+        depends on I2C
+        default n
+        help
+          This enables support for vibrator voltage switch when display dongle plug-in.
+
 config INPUT_HISI_POWERKEY
 	tristate "Hisilicon PMIC ONKEY support"
 	depends on ARCH_HISI || COMPILE_TEST
@@ -887,5 +902,15 @@ config INPUT_HISI_POWERKEY
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called hisi_powerkey.
+
+config AK8789_HALLSENSOR
+	tristate "ak8789 hall sensor support"
+	help
+	if you say yes here, you get support for ak8789 hall sensor
+
+config INPUT_DUMMY_KEYPAD
+	tristate "Dummy Keypad driver support"
+	help
+         Say Y here if you want to support dummy keypad driver, wheels etc...
 
 endif

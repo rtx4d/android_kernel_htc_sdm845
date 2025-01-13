@@ -70,4 +70,8 @@ int32_t cam_actuator_driver_cmd(struct cam_actuator_ctrl_t *a_ctrl, void *arg);
  */
 void cam_actuator_shutdown(struct cam_actuator_ctrl_t *a_ctrl);
 
+//HTC_START
+int GyroGainRamWrite32A(struct camera_io_master io_master_info, uint16_t RamAddr, uint32_t RamData );
+//HTC_END
+
 #endif /* _CAM_ACTUATOR_CORE_H_ */

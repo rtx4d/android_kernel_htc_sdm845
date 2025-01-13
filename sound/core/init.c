@@ -452,14 +452,7 @@ int snd_card_disconnect(struct snd_card *card)
 	card->shutdown = 1;
 	spin_unlock(&card->files_lock);
 
-	/* phase 1: disable fops (user space) operations for ALSA API */
-	mutex_lock(&snd_card_mutex);
-	snd_cards[card->number] = NULL;
-	clear_bit(card->number, snd_cards_lock);
-	mutex_unlock(&snd_card_mutex);
-	
-	/* phase 2: replace file->f_op with special dummy operations */
-	
+	/* replace file->f_op with special dummy operations */
 	spin_lock(&card->files_lock);
 	list_for_each_entry(mfile, &card->files_list, list) {
 		/* it's critical part, use endless loop */
@@ -475,7 +468,7 @@ int snd_card_disconnect(struct snd_card *card)
 	}
 	spin_unlock(&card->files_lock);	
 
-	/* phase 3: notify all connected devices about disconnection */
+	/* notify all connected devices about disconnection */
 	/* at this point, they cannot respond to any calls except release() */
 
 #if IS_ENABLED(CONFIG_SND_MIXER_OSS)
@@ -491,6 +484,13 @@ int snd_card_disconnect(struct snd_card *card)
 		device_del(&card->card_dev);
 		card->registered = false;
 	}
+
+	/* disable fops (user space) operations for ALSA API */
+	mutex_lock(&snd_card_mutex);
+	snd_cards[card->number] = NULL;
+	clear_bit(card->number, snd_cards_lock);
+	mutex_unlock(&snd_card_mutex);
+
 #ifdef CONFIG_PM
 	wake_up(&card->power_sleep);
 #endif
@@ -630,7 +630,13 @@ static void snd_card_set_id_no_lock(struct snd_card *card, const char *src,
 	 * ("card" conflicts with proc directories)
 	 */
 	if (!*id || !strncmp(id, "card", 4)) {
+/* HTC_AUD_START - Klocwork */
+#if 0
 		strcpy(id, "Default");
+#else
+		strlcpy(id, "Default", sizeof(card->id));
+#endif
+/* HTC_AUD_END */
 		is_default = true;
 	}
 
@@ -644,13 +650,25 @@ static void snd_card_set_id_no_lock(struct snd_card *card, const char *src,
 			return; /* OK */
 
 		/* Add _XYZ suffix */
+/* HTC_AUD_START HPKB:6797 Klocwork */
+#if 0
 		sprintf(sfxstr, "_%X", loops + 1);
+#else
+		snprintf(sfxstr, sizeof(sfxstr), "_%X", loops + 1);
+#endif
+/* HTC_AUD_END */
 		sfxlen = strlen(sfxstr);
 		if (len + sfxlen >= sizeof(card->id))
 			spos = id + sizeof(card->id) - sfxlen - 1;
 		else
 			spos = id + len;
+/* HTC_AUD_START - Klocwork */
+#if 0
 		strcpy(spos, sfxstr);
+#else
+		strlcpy(spos, sfxstr, sfxlen + 1);
+#endif
+/* HTC_AUD_END */
 	}
 	/* fallback to the default id */
 	if (!is_default) {
@@ -713,7 +731,13 @@ card_id_store_attr(struct device *dev, struct device_attribute *attr,
 		mutex_unlock(&snd_card_mutex);
 		return -EEXIST;
 	}
+/* HTC_AUD_START HPKB:6797 Klocwork */
+#if 0
 	strcpy(card->id, buf1);
+#else
+	strlcpy(card->id, buf1, sizeof(card->id));
+#endif
+/* HTC_AUD_END */
 	snd_info_card_id_change(card);
 	mutex_unlock(&snd_card_mutex);
 
@@ -934,9 +958,17 @@ int snd_component_add(struct snd_card *card, const char *component)
 		snd_BUG();
 		return -ENOMEM;
 	}
+/* HTC_AUD_START HPKB:6797 Klocwork */
+#if 0
 	if (card->components[0] != '\0')
 		strcat(card->components, " ");
 	strcat(card->components, component);
+#else
+	if (card->components[0] != '\0')
+		strlcat(card->components, " ", sizeof(card->components));
+	strlcat(card->components, component, sizeof(card->components));
+#endif
+/* HTC_AUD_END */
 	return 0;
 }
 

@@ -372,10 +372,24 @@ static int set_sample_rate_v2(struct snd_usb_audio *chip, int iface,
 		return clock;
 
 	prev_rate = get_sample_rate_v2(chip, iface, fmt->altsetting, clock);
+/* HTC_AUD_START HPKB:6799 */
+#if 0
 	if (prev_rate == rate)
+#else
+	if (prev_rate == rate && chip->usb_id != USB_ID(0xc502, 0x000c)) /* Cayin N5 force set sample rate */
+#endif
+/* HTC_AUD_END */
 		return 0;
 
 	cs_desc = snd_usb_find_clock_source(chip->ctrl_intf, clock);
+/* HTC_AUD_START HPKB:6797 klockwork */
+	if (!cs_desc) {
+		usb_audio_warn(chip,
+			 "%d:%d: Failed to get clock source!\n",
+			 iface, fmt->altsetting);
+		return 0;
+	}
+/* HTC_AUD_END */
 	writeable = uac2_control_is_writeable(cs_desc->bmControls, UAC2_CS_CONTROL_SAM_FREQ - 1);
 	if (writeable) {
 		data = cpu_to_le32(rate);
@@ -410,7 +424,13 @@ static int set_sample_rate_v2(struct snd_usb_audio *chip, int iface,
 
 	/* Some devices doesn't respond to sample rate changes while the
 	 * interface is active. */
+/* HTC_AUD_START HPKB:6799 */
+#if 0
 	if (rate != prev_rate) {
+#else
+	if (rate != prev_rate || chip->usb_id == USB_ID(0xc502, 0x000c)) { /* Cayin N5 force set interface */
+#endif
+/* HTC_AUD_END */
 		usb_set_interface(dev, iface, 0);
 		snd_usb_set_interface_quirk(dev);
 		usb_set_interface(dev, iface, fmt->altsetting);

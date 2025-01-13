@@ -32,7 +32,7 @@ static ssize_t brightness_show(struct device *dev,
 	/* no lock needed for this */
 	led_update_brightness(led_cdev);
 
-	return sprintf(buf, "%u\n", led_cdev->brightness);
+	return snprintf(buf, PAGE_SIZE, "%u\n", led_cdev->brightness);
 }
 
 static ssize_t brightness_store(struct device *dev,
@@ -70,7 +70,7 @@ static ssize_t max_brightness_show(struct device *dev,
 {
 	struct led_classdev *led_cdev = dev_get_drvdata(dev);
 
-	return sprintf(buf, "%u\n", led_cdev->max_brightness);
+	return snprintf(buf, PAGE_SIZE, "%u\n", led_cdev->max_brightness);
 }
 
 static ssize_t max_brightness_store(struct device *dev,

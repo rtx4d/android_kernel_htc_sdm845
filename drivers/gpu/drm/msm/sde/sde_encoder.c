@@ -1500,6 +1500,8 @@ static void _sde_encoder_update_vsync_source(struct sde_encoder_virt *sde_enc,
 			vsync_cfg.vsync_source = SDE_VSYNC_SOURCE_WD_TIMER_1;
 		else if (disp_info->is_te_using_watchdog_timer)
 			vsync_cfg.vsync_source = SDE_VSYNC_SOURCE_WD_TIMER_0;
+		else
+			vsync_cfg.vsync_source = SDE_VSYNC2_SOURCE_GPIO;//SDE_VSYNC0_SOURCE_GPIO;
 
 		vsync_cfg.is_dummy = is_dummy;
 

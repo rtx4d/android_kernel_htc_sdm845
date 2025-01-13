@@ -817,7 +817,7 @@
 
 		trips {
 			low-vbat {
-				temperature = <2600>;
+				temperature = <2400>;
 				hysteresis = <0>;
 				type = "passive";
 			};
@@ -832,11 +832,12 @@
 
 		trips {
 			low_soc: low-soc {
-				temperature = <10>;
+				temperature = <0>;
 				hysteresis = <0>;
 				type = "passive";
 			};
 		};
+/*
 		cooling-maps {
 			soc_cpu4 {
 				trip = <&low_soc>;
@@ -863,6 +864,7 @@
 						THERMAL_MAX_LIMIT>;
 			};
 		};
+*/
 	};
 
 	pmi8998_tz {

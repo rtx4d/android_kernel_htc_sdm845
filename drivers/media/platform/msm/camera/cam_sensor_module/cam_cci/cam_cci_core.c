@@ -13,6 +13,9 @@
 #include <linux/module.h>
 #include "cam_cci_core.h"
 #include "cam_cci_dev.h"
+//HTC_START
+struct mutex g_cci_lock;
+//HTC_END
 
 static int32_t cam_cci_convert_type_to_num_bytes(
 	enum camera_sensor_i2c_type type)
@@ -1604,7 +1607,16 @@ int32_t cam_cci_core_cfg(struct v4l2_subdev *sd,
 	struct cam_cci_ctrl *cci_ctrl)
 {
 	int32_t rc = 0;
-
+//HTC_START
+	static int first = 0;
+	if(first == 0)
+	{
+	    first = 1;
+	    CAM_INFO(CAM_CCI, "mutex_init(&g_cci_lock)");
+	    mutex_init(&g_cci_lock);
+	}
+	mutex_lock(&g_cci_lock);
+//HTC_END
 	CAM_DBG(CAM_CCI, "cmd %d", cci_ctrl->cmd);
 	switch (cci_ctrl->cmd) {
 	case MSM_CCI_INIT:
@@ -1635,6 +1647,8 @@ int32_t cam_cci_core_cfg(struct v4l2_subdev *sd,
 	}
 
 	cci_ctrl->status = rc;
-
+//HTC_START
+	mutex_unlock(&g_cci_lock);
+//HTC_END
 	return rc;
 }

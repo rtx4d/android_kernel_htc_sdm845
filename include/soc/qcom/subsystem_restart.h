@@ -32,6 +32,13 @@ enum crash_status {
 	CRASH_STATUS_WDOG_BITE,
 };
 
+#if defined(CONFIG_HTC_FEATURES_SSR)
+enum {
+	DISABLE_RAMDUMP = 0,
+	ENABLE_RAMDUMP,
+};
+#endif
+
 struct device;
 struct module;
 
@@ -99,6 +106,7 @@ struct subsys_desc {
 	irqreturn_t (*err_fatal_handler)(int irq, void *dev_id);
 	irqreturn_t (*stop_ack_handler)(int irq, void *dev_id);
 	irqreturn_t (*wdog_bite_handler)(int irq, void *dev_id);
+	irqreturn_t (*periph_hang_handler)(int irq, void *dev_id);
 	irqreturn_t (*generic_handler)(int irq, void *dev_id);
 	int is_not_loadable;
 	int err_fatal_gpio;
@@ -106,6 +114,7 @@ struct subsys_desc {
 	unsigned int err_ready_irq;
 	unsigned int stop_ack_irq;
 	unsigned int wdog_bite_irq;
+	unsigned int periph_hang_irq;
 	unsigned int generic_irq;
 	int force_stop_gpio;
 	int ramdump_disable_gpio;
@@ -142,6 +151,32 @@ struct notif_data {
 };
 
 #if defined(CONFIG_MSM_SUBSYSTEM_RESTART)
+
+#if defined(CONFIG_HTC_DEBUG_SSR)
+void subsys_set_restart_reason(struct subsys_device *dev, const char *reason);
+#endif /* CONFIG_HTC_DEBUG_SSR  */
+
+#if defined(CONFIG_HTC_FEATURES_SSR)
+extern void subsys_set_enable_ramdump(struct subsys_device *dev, int enable);
+extern void subsys_set_restart_level(struct subsys_device *dev, int level);
+extern void subsys_config_modem_enable_ramdump(struct subsys_device *dev);
+extern void subsys_config_modem_restart_level(struct subsys_device *dev);
+#endif
+
+#if defined(CONFIG_HTC_FEATURES_SSR)
+void subsys_config_enable_ramdump(struct subsys_device *dev);
+void subsys_config_restart_level(struct subsys_device *dev);
+#else
+static inline void subsys_config_enable_ramdump(struct subsys_device *dev)
+{
+	return;
+}
+
+static inline void subsys_config_restart_level(struct subsys_device *dev)
+{
+	return;
+}
+#endif
 
 extern int subsys_get_restart_level(struct subsys_device *dev);
 extern int subsystem_restart_dev(struct subsys_device *dev);

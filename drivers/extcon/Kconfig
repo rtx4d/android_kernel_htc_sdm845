@@ -132,4 +132,11 @@ config EXTCON_USB_GPIO
 	  Say Y here to enable GPIO based USB cable detection extcon support.
 	  Used typically if GPIO is used for USB ID pin detection.
 
+# HTC_AUD_START - HPKB:2469|HPKB:240|HPKB:6799
+config EXTCON_HTC_MISC
+	tristate "HTC MISC extcon support"
+	help
+	  Say Y here to enable HTC MISC virtual cable detection
+# HTC_AUD_END - HPKB:2469|HPKB:240|HPKB:6799
+
 endif

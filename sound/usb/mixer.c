@@ -677,40 +677,100 @@ static int get_term_name(struct mixer_build *state, struct usb_audio_term *iterm
 			return 0;
 		switch (iterm->type >> 16) {
 		case UAC_SELECTOR_UNIT:
+/* HTC_AUD_START - Klocwork */
+#if 0
 			strcpy(name, "Selector");
+#else
+			strlcpy(name, "Selector", maxlen);
+#endif
+/* HTC_AUD_END */
 			return 8;
 		case UAC1_PROCESSING_UNIT:
+/* HTC_AUD_START - Klocwork */
+#if 0
 			strcpy(name, "Process Unit");
+#else
+			strlcpy(name, "Process Unit", maxlen);
+#endif
+/* HTC_AUD_END */
 			return 12;
 		case UAC1_EXTENSION_UNIT:
+/* HTC_AUD_START - Klocwork */
+#if 0
 			strcpy(name, "Ext Unit");
+#else
+			strlcpy(name, "Ext Unit", maxlen);
+#endif
+/* HTC_AUD_END */
 			return 8;
 		case UAC_MIXER_UNIT:
+/* HTC_AUD_START - Klocwork */
+#if 0
 			strcpy(name, "Mixer");
+#else
+			strlcpy(name, "Mixer", maxlen);
+#endif
+/* HTC_AUD_END */
 			return 5;
 		default:
+/* HTC_AUD_START - Klocwork */
+#if 0
 			return sprintf(name, "Unit %d", iterm->id);
+#else
+			return snprintf(name, maxlen, "Unit %d", iterm->id);
+#endif
+/* HTC_AUD_END */
 		}
 	}
 
 	switch (iterm->type & 0xff00) {
 	case 0x0100:
+/* HTC_AUD_START - Klocwork */
+#if 0
 		strcpy(name, "PCM");
+#else
+		strlcpy(name, "PCM", maxlen);
+#endif
+/* HTC_AUD_END */
 		return 3;
 	case 0x0200:
+/* HTC_AUD_START - Klocwork */
+#if 0
 		strcpy(name, "Mic");
+#else
+		strlcpy(name, "Mic", maxlen);
+#endif
+/* HTC_AUD_END */
 		return 3;
 	case 0x0400:
+/* HTC_AUD_START - Klocwork */
+#if 0
 		strcpy(name, "Headset");
+#else
+		strlcpy(name, "Headset", maxlen);
+#endif
+/* HTC_AUD_END */
 		return 7;
 	case 0x0500:
+/* HTC_AUD_START - Klocwork */
+#if 0
 		strcpy(name, "Phone");
+#else
+		strlcpy(name, "Phone", maxlen);
+#endif
+/* HTC_AUD_END */
 		return 5;
 	}
 
 	for (names = iterm_names; names->type; names++) {
 		if (names->type == iterm->type) {
+/* HTC_AUD_START - Klocwork */
+#if 0
 			strcpy(name, names->name);
+#else
+			strlcpy(name, names->name, maxlen);
+#endif
+/* HTC_AUD_END */
 			return strlen(names->name);
 		}
 	}
@@ -1350,6 +1410,10 @@ static void build_feature_ctl(struct mixer_build *state, void *raw_desc,
 		/* FIXME: not supported yet */
 		return;
 	}
+/* HTC_AUD_START - Klocwork */
+	if (control < 0)
+		return; /* it should be zero-based */
+/* HTC_AUD_END */
 
 	map = find_map(state, unitid, control);
 	if (check_ignored_ctl(map))
@@ -1558,8 +1622,19 @@ static int find_num_channels(struct mixer_build *state, int dir)
 	int ctrlif = get_iface_desc(state->mixer->hostif)->bInterfaceNumber;
 	struct usb_interface *usb_iface	=
 			usb_ifnum_to_if(state->mixer->chip->dev, ctrlif);
+/* HTC_AUD_START - Klocwork */
+#if 0
 	struct usb_interface_assoc_descriptor *assoc = usb_iface->intf_assoc;
 	struct usb_host_interface *alts;
+#else
+	struct usb_host_interface *alts;
+	struct usb_interface_assoc_descriptor *assoc = NULL;
+	if (usb_iface)
+		assoc = usb_iface->intf_assoc;
+	else
+		return -EINVAL;
+#endif
+/* HTC_AUD_END */
 
 	for (i = 0; i < assoc->bInterfaceCount; i++) {
 		int intf = assoc->bFirstInterface + i;
@@ -1568,6 +1643,10 @@ static int find_num_channels(struct mixer_build *state, int dir)
 			struct usb_interface *iface =
 				usb_ifnum_to_if(state->mixer->chip->dev, intf);
 
+/* HTC_AUD_START - Klocwork */
+			if (iface == NULL)
+				continue;
+/* HTC_AUD_END */
 			alts = &iface->altsetting[1];
 			if (dir == USB_DIR_OUT &&
 				get_endpoint(alts, 0)->bEndpointAddress &
@@ -1666,8 +1745,16 @@ static int parse_audio_feature_unit(struct mixer_build *state, int unitid,
 		struct usb_interface *usb_iface	=
 			usb_ifnum_to_if(state->mixer->chip->dev,
 			get_iface_desc(state->mixer->hostif)->bInterfaceNumber);
+/* HTC_AUD_START - Klocwork */
+#if 0
 		struct usb_interface_assoc_descriptor *assoc =
 							usb_iface->intf_assoc;
+#else
+		struct usb_interface_assoc_descriptor *assoc = NULL;
+		if (usb_iface)
+			assoc = usb_iface->intf_assoc;
+#endif
+/* HTC_AUD_END */
 
 		csize = 4;
 		switch (unitid) {
@@ -1679,7 +1766,13 @@ static int parse_audio_feature_unit(struct mixer_build *state, int unitid,
 			break;
 
 		case BADD_FU_ID_BAOF:
+/* HTC_AUD_START - Klocwork */
+#if 0
 			switch (assoc->bFunctionSubClass) {
+#else
+			switch ((assoc)?assoc->bFunctionSubClass:0) {
+#endif
+/* HTC_AUD_END */
 			case PROF_HEADPHONE:
 			case PROF_HEADSET_ADAPTER:
 				channels = NUM_CHANNELS_STEREO;
@@ -1713,7 +1806,13 @@ static int parse_audio_feature_unit(struct mixer_build *state, int unitid,
 			break;
 
 		case BADD_FU_ID_BAIF:
+/* HTC_AUD_START - Klocwork */
+#if 0
 			switch (assoc->bFunctionSubClass) {
+#else
+			switch ((assoc)?assoc->bFunctionSubClass:0) {
+#endif
+/* HTC_AUD_END */
 			case PROF_HEADSET:
 			case PROF_HEADSET_ADAPTER:
 			case PROF_SPEAKERPHONE:
@@ -1755,12 +1854,25 @@ static int parse_audio_feature_unit(struct mixer_build *state, int unitid,
 		struct usb_interface *usb_iface	=
 			usb_ifnum_to_if(state->mixer->chip->dev,
 			get_iface_desc(state->mixer->hostif)->bInterfaceNumber);
+/* HTC_AUD_START - Klocwork */
+#if 0
 		struct usb_interface_assoc_descriptor *assoc =
 			usb_iface->intf_assoc;
+#else
+		struct usb_interface_assoc_descriptor *assoc =
+			(usb_iface)?usb_iface->intf_assoc:NULL;
+#endif
+/* HTC_AUD_END */
 
 		switch (unitid) {
 		case BADD_FU_ID_BAOF:
+ /* HTC_AUD_START - Klocwork */
+#if 0
 			switch (assoc->bFunctionSubClass) {
+#else
+			switch ((assoc)?assoc->bFunctionSubClass:0) {
+#endif
+/* HTC_AUD_END */
 			case PROF_HEADSET:
 			case PROF_HEADSET_ADAPTER:
 				hdr->bSourceID = BADD_MU_ID_BAIOF;
@@ -1926,7 +2038,13 @@ static void build_mixer_unit_ctl(struct mixer_build *state,
 		len = get_term_name(state, iterm, kctl->id.name,
 				    sizeof(kctl->id.name), 0);
 	if (!len)
+/* HTC_AUD_START - Klocwork */
+#if 0
 		len = sprintf(kctl->id.name, "Mixer Source %d", in_ch + 1);
+#else
+		len = snprintf(kctl->id.name, sizeof(kctl->id.name), "Mixer Source %d", in_ch + 1);
+#endif
+/* HTC_AUD_END */
 	append_ctl_name(kctl, " Volume");
 
 	usb_audio_dbg(state->chip, "[%d] MU [%s] ch = %d, val = %d/%d\n",
@@ -2431,7 +2549,13 @@ static int parse_audio_selector_unit(struct mixer_build *state, int unitid,
 		if (! len && check_input_term(state, desc->baSourceID[i], &iterm) >= 0)
 			len = get_term_name(state, &iterm, namelist[i], MAX_ITEM_NAME_LEN, 0);
 		if (! len)
+/* HTC_AUD_START - Klocwork */
+#if 0
 			sprintf(namelist[i], "Input %u", i);
+#else
+			snprintf(namelist[i], MAX_ITEM_NAME_LEN, "Input %u", i);
+#endif
+/* HTC_AUD_END */
 	}
 
 	kctl = snd_ctl_new1(&mixer_selectunit_ctl, cval);
@@ -2608,8 +2732,18 @@ static int snd_usb_mixer_controls(struct usb_mixer_interface *mixer)
 		struct usb_interface *usb_iface	=
 			usb_ifnum_to_if(mixer->chip->dev,
 			get_iface_desc(mixer->hostif)->bInterfaceNumber);
+/* HTC_AUD_START - Klocwork */
+#if 0
 		struct usb_interface_assoc_descriptor *assoc =
 			usb_iface->intf_assoc;
+#else
+		struct usb_interface_assoc_descriptor *assoc = NULL;
+		if (usb_iface)
+			assoc = usb_iface->intf_assoc;
+		else
+			return -EINVAL;
+#endif
+/* HTC_AUD_END */
 
 		switch (assoc->bFunctionSubClass) {
 		case PROF_GENERIC_IO: {
@@ -2921,10 +3055,19 @@ int snd_usb_create_mixer(struct snd_usb_audio *chip, int ctrlif,
 		.dev_free = snd_usb_mixer_dev_free
 	};
 	struct usb_mixer_interface *mixer;
+/* HTC_AUD_START - Klocwork */
+	struct usb_interface *usb_iface;
+/* HTC_AUD_END */
 	struct snd_info_entry *entry;
 	int err;
 
+/* HTC_AUD_START - Klocwork */
+#if 0
 	strcpy(chip->card->mixername, "USB Mixer");
+#else
+	strlcpy(chip->card->mixername, "USB Mixer", sizeof(chip->card->mixername));
+#endif
+/* HTC_AUD_END */
 
 	mixer = kzalloc(sizeof(*mixer), GFP_KERNEL);
 	if (!mixer)
@@ -2938,7 +3081,19 @@ int snd_usb_create_mixer(struct snd_usb_audio *chip, int ctrlif,
 		return -ENOMEM;
 	}
 
+/* HTC_AUD_START - Klocwork */
+#if 0
 	mixer->hostif = &usb_ifnum_to_if(chip->dev, ctrlif)->altsetting[0];
+#else
+	usb_iface = usb_ifnum_to_if(chip->dev, ctrlif);
+	if (usb_iface) {
+		mixer->hostif = &usb_iface->altsetting[0];
+	} else {
+		err = -EINVAL;
+		goto _error;
+	}
+#endif
+/* HTC_AUD_END */
 	switch (get_iface_desc(mixer->hostif)->bInterfaceProtocol) {
 	case UAC_VERSION_1:
 	default:

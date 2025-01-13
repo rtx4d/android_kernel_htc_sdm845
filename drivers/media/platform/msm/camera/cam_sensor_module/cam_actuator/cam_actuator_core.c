@@ -17,6 +17,64 @@
 #include "cam_trace.h"
 #include "cam_res_mgr_api.h"
 
+//HTC_START
+#define OIS_COMPONENT_I2C_ADDR_WRITE 0x7C
+int GyroGainRamWrite32A(struct camera_io_master io_master_info, uint16_t RamAddr, uint32_t RamData )
+{
+//Add 32 bit I2C writing function
+	int rc = 0;
+	uint8_t data[4] = {0,0,0,0};
+	struct cam_sensor_i2c_reg_setting  i2c_reg_settings;
+	struct cam_sensor_i2c_reg_array    i2c_reg_array[4];
+	uint16_t cci_client_sid_backup = 0;
+
+	cci_client_sid_backup = io_master_info.cci_client->sid;
+
+	io_master_info.cci_client->sid =
+			OIS_COMPONENT_I2C_ADDR_WRITE >> 1;
+
+	data[0] = (RamData >> 24) & 0xFF;
+	data[1] = (RamData >> 16) & 0xFF;
+	data[2] = (RamData >> 8)  & 0xFF;
+	data[3] = (RamData) & 0xFF;
+
+	i2c_reg_settings.addr_type = 2;
+	i2c_reg_settings.data_type = 1;
+	i2c_reg_settings.size = 4;
+
+	i2c_reg_array[0].reg_addr = RamAddr;
+	i2c_reg_array[0].reg_data = data[0];
+	i2c_reg_array[0].delay = 0;
+
+	i2c_reg_array[1].reg_addr = RamAddr;
+	i2c_reg_array[1].reg_data = data[1];
+	i2c_reg_array[1].delay = 0;
+
+	i2c_reg_array[2].reg_addr = RamAddr;
+	i2c_reg_array[2].reg_data = data[2];
+	i2c_reg_array[2].delay = 0;
+
+	i2c_reg_array[3].reg_addr = RamAddr;
+	i2c_reg_array[3].reg_data = data[3];
+	i2c_reg_array[3].delay = 0;
+
+	i2c_reg_settings.reg_setting = &i2c_reg_array[0];
+
+	i2c_reg_settings.delay = 0;
+
+	rc = camera_io_dev_write_continuous(&io_master_info, &i2c_reg_settings, 0);
+
+	/*rc = io_master_info->i2c_func_tbl->i2c_write_seq(
+		io_master_info, RamAddr, &data[0], 4);*/
+	if (rc < 0)
+		CAM_ERR(CAM_ACTUATOR,"[GyroGain] %s : write failed\n", __func__);
+
+	io_master_info.cci_client->sid = cci_client_sid_backup;
+
+	return rc;
+}
+//HTC_END
+
 int32_t cam_actuator_construct_default_power_setting(
 	struct cam_sensor_power_ctrl_t *power_info)
 {
@@ -424,6 +482,9 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 	struct cam_cmd_buf_desc   *cmd_desc = NULL;
 	struct cam_actuator_soc_private *soc_private = NULL;
 	struct cam_sensor_power_ctrl_t  *power_info = NULL;
+//HTC_START
+	struct cam_cmd_i2c_random_wr *cam_cmd_i2c_random_wr = NULL;
+//HTC_END
 
 	if (!a_ctrl || !arg) {
 		CAM_ERR(CAM_ACTUATOR, "Invalid Args");
@@ -629,6 +690,23 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 
 		cam_actuator_update_req_mgr(a_ctrl, csl_packet);
 		break;
+//HTC_START
+	case CAM_ACTUATOR_PACKET_GYRO_GAIN:
+		offset = (uint32_t *)&csl_packet->payload;
+		offset += csl_packet->cmd_buf_offset / sizeof(uint32_t);
+		cmd_desc = (struct cam_cmd_buf_desc *)(offset);
+		len_of_buff = 0;
+		rc = cam_mem_get_cpu_buf(cmd_desc[0].mem_handle,
+			(uint64_t *)&generic_ptr, &len_of_buff);
+		cmd_buf = (uint32_t *)generic_ptr;
+		cmd_buf += cmd_desc[i].offset / sizeof(uint32_t);
+		cam_cmd_i2c_random_wr =	(struct cam_cmd_i2c_random_wr *)cmd_buf;
+
+		GyroGainRamWrite32A(a_ctrl->io_master_info, 0x82CC, cam_cmd_i2c_random_wr->random_wr_payload[0].reg_data );
+		GyroGainRamWrite32A(a_ctrl->io_master_info, 0x832C, cam_cmd_i2c_random_wr->random_wr_payload[0].reg_data );
+
+		break;
+//HTC_END
 	}
 
 	return rc;

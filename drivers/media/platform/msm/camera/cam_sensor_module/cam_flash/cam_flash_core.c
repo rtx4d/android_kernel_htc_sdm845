@@ -16,6 +16,11 @@
 #include "cam_flash_core.h"
 #include "cam_res_mgr_api.h"
 
+#ifdef CONFIG_HTC_FLASHLIGHT // set =y in sdm845_defconfig
+#include <linux/htc_flashlight.h>
+#define CONFIG_HTC_FLASHLIGHT_COMMON
+#endif
+
 static int cam_flash_prepare(struct cam_flash_ctrl *flash_ctrl,
 	bool regulator_enable)
 {
@@ -422,7 +427,7 @@ static int cam_flash_ops(struct cam_flash_ctrl *flash_ctrl,
 				else
 					curr = soc_private->flash_op_current[i];
 
-				CAM_DBG(CAM_PERF, "LED flash_current[%d]: %d",
+				CAM_INFO(CAM_FLASH, "FIREHIGH LED flash_current[%d]: %d",
 					i, curr);
 				cam_res_mgr_led_trigger_event(
 					flash_ctrl->flash_trigger[i],
@@ -449,10 +454,27 @@ int cam_flash_off(struct cam_flash_ctrl *flash_ctrl)
 		return -EINVAL;
 	}
 
+#ifdef CONFIG_HTC_FLASHLIGHT_COMMON
+    CAM_INFO(CAM_FLASH, "cam_flash_off (%d)", flash_ctrl->soc_info.index);
+    if ( flash_ctrl->soc_info.index == 2 ) {
+        if ( htc_flash_front && htc_torch_front ) {
+            pr_info("[CAM][FL] Front cam_flash_off 0 0\n");
+            htc_flash_front(0, 0);
+            htc_torch_front(0, 0);
+        } else {
+            pr_err("[CAM][FL] Front cam_flash_off, flashlight control is NULL\n");
+        }
+    }
+    else
+    {
+#endif
 	if (flash_ctrl->switch_trigger)
 		cam_res_mgr_led_trigger_event(flash_ctrl->switch_trigger,
 			LED_SWITCH_OFF);
 
+#ifdef CONFIG_HTC_FLASHLIGHT_COMMON
+    }
+#endif
 	flash_ctrl->flash_state = CAM_FLASH_STATE_START;
 	return 0;
 }
@@ -468,6 +490,20 @@ static int cam_flash_low(
 		return -EINVAL;
 	}
 
+#ifdef CONFIG_HTC_FLASHLIGHT_COMMON
+    CAM_INFO(CAM_FLASH, "cam_flash_low (%d)", flash_ctrl->soc_info.index);
+    if ( flash_ctrl->soc_info.index == 2 ) {
+        if ( htc_flash_front && htc_torch_front ) {
+            htc_torch_front(50, 50);
+            pr_info("[CAM][FL] Front cam_flash_low, flashlight current is (50, 50)\n");
+        } else {
+            pr_err("[CAM][FL] Front cam_flash_low, flashlight control is NULL\n");
+        }
+    }
+    else
+    {
+#endif
+
 	for (i = 0; i < flash_ctrl->flash_num_sources; i++)
 		if (flash_ctrl->flash_trigger[i])
 			cam_res_mgr_led_trigger_event(
@@ -479,6 +515,9 @@ static int cam_flash_low(
 	if (rc)
 		CAM_ERR(CAM_FLASH, "Fire Torch failed: %d", rc);
 
+#ifdef CONFIG_HTC_FLASHLIGHT_COMMON
+    }
+#endif
 	return rc;
 }
 
@@ -493,6 +532,19 @@ static int cam_flash_high(
 		return -EINVAL;
 	}
 
+#ifdef CONFIG_HTC_FLASHLIGHT_COMMON
+    CAM_INFO(CAM_FLASH, "cam_flash_high (%d)", flash_ctrl->soc_info.index);
+    if ( flash_ctrl->soc_info.index == 2 ) {
+        if ( htc_flash_front && htc_torch_front ) {
+            pr_info("[CAM][FL] Front cam_flash_high, called linear flashlight current value (%d, %d)\n", flash_data->led_current_ma[0], flash_data->led_current_ma[1]);
+            htc_flash_front((int)flash_data->led_current_ma[0], (int)flash_data->led_current_ma[1]);
+        } else {
+            pr_err("[CAM][FL] Front msm_flash_high, flashlight control is NULL\n");
+        }
+    }
+    else
+    {
+#endif
 	for (i = 0; i < flash_ctrl->torch_num_sources; i++)
 		if (flash_ctrl->torch_trigger[i])
 			cam_res_mgr_led_trigger_event(
@@ -504,6 +556,9 @@ static int cam_flash_high(
 	if (rc)
 		CAM_ERR(CAM_FLASH, "Fire Flash Failed: %d", rc);
 
+#ifdef CONFIG_HTC_FLASHLIGHT_COMMON
+    }
+#endif
 	return rc;
 }
 
@@ -1561,9 +1616,10 @@ void cam_flash_shutdown(struct cam_flash_ctrl *fctrl)
 
 	if ((fctrl->flash_state == CAM_FLASH_STATE_CONFIG) ||
 		(fctrl->flash_state == CAM_FLASH_STATE_START)) {
-		mutex_lock(&(fctrl->flash_mutex));
+		//htc removed this mutex to avoid deadlocking in cam_flash_subdev_close
+		//mutex_lock(&(fctrl->flash_mutex));
 		fctrl->func_tbl.flush_req(fctrl, FLUSH_ALL, 0);
-		mutex_unlock(&(fctrl->flash_mutex));
+		//mutex_unlock(&(fctrl->flash_mutex));
 		rc = fctrl->func_tbl.power_ops(fctrl, false);
 		if (rc)
 			CAM_ERR(CAM_FLASH, "Power Down Failed rc: %d",

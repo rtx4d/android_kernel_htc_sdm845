@@ -34,6 +34,9 @@
 
 #define PP_TIMEOUT_MAX_TRIALS	2
 
+#define VSYNC_PADDING_TIME	5
+#define TICKS_IN_SEC	1000
+
 /*
  * Tearcheck sync start and continue thresholds are empirically found
  * based on common panels In the future, may want to allow panels to override
@@ -1206,6 +1209,7 @@ static int sde_encoder_phys_cmd_wait_for_vblank(
 	int rc = 0;
 	struct sde_encoder_phys_cmd *cmd_enc;
 	struct sde_encoder_wait_info wait_info;
+	struct drm_display_mode *mode;
 
 	if (!phys_enc)
 		return -EINVAL;
@@ -1216,10 +1220,13 @@ static int sde_encoder_phys_cmd_wait_for_vblank(
 	if (!sde_encoder_phys_cmd_is_master(phys_enc))
 		return rc;
 
+	mode = &phys_enc->cached_mode;
+
 	wait_info.wq = &cmd_enc->pending_vblank_wq;
 	wait_info.atomic_cnt = &cmd_enc->pending_vblank_cnt;
-	wait_info.timeout_ms = _sde_encoder_phys_cmd_get_idle_timeout(cmd_enc);
-
+	wait_info.timeout_ms = (mode && mode->vrefresh) ?
+	(TICKS_IN_SEC / mode->vrefresh) + VSYNC_PADDING_TIME :
+	KICKOFF_TIMEOUT_MS;
 	atomic_inc(&cmd_enc->pending_vblank_cnt);
 
 	rc = sde_encoder_helper_wait_for_irq(phys_enc, INTR_IDX_RDPTR,

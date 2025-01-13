@@ -55,6 +55,12 @@ struct diag_md_hdlc_reset_work {
 	struct work_struct work;
 };
 
+#define SMD_DRAIN_BUF_SIZE 4096
+extern unsigned diag7k_debug_mask;
+extern unsigned diag9k_debug_mask;
+int diag_debug_buf_idx;
+unsigned char diag_debug_buf[1024];
+
 static int timestamp_switch;
 module_param(timestamp_switch, int, 0644);
 
@@ -160,6 +166,7 @@ int chk_apps_only(void)
 	case MSM_CPU_8627:
 	case MSM_CPU_9615:
 	case MSM_CPU_8974:
+	case MSM_CPU_SDM845:
 		return 1;
 	default:
 		return 0;
@@ -233,7 +240,7 @@ void chk_logging_wakeup(void)
 			 */
 			driver->data_ready[i] |= USER_SPACE_DATA_TYPE;
 			atomic_inc(&driver->data_ready_notif[i]);
-			pr_debug("diag: Force wakeup of logging process\n");
+			DIAG_DBUG("diag: Force wakeup of logging process\n");
 			wake_up_interruptible(&driver->wait_q);
 			break;
 		}
@@ -1018,6 +1025,10 @@ int diag_process_apps_pkt(unsigned char *buf, int len, int pid)
 	int i, p_mask = 0;
 	int mask_ret, peripheral = -EINVAL;
 	int write_len = 0;
+#if DIAG_XPST
+	int rsp_ctxt = 0;
+	int ret = 0;
+#endif
 	unsigned char *temp = NULL;
 	struct diag_cmd_reg_entry_t entry;
 	struct diag_cmd_reg_entry_t *temp_entry = NULL;
@@ -1045,7 +1056,7 @@ int diag_process_apps_pkt(unsigned char *buf, int len, int pid)
 	entry.cmd_code_lo = (uint16_t)(*(uint16_t *)temp);
 	temp += sizeof(uint16_t);
 
-	pr_debug("diag: In %s, received cmd %02x %02x %02x\n",
+	DIAGFWD_INFO("diag: In %s, received cmd %02x %02x %02x\n",
 		 __func__, entry.cmd_code, entry.subsys_id, entry.cmd_code_hi);
 
 	if (*buf == DIAG_CMD_LOG_ON_DMND && driver->log_on_demand_support &&
@@ -1230,6 +1241,18 @@ int diag_process_apps_pkt(unsigned char *buf, int len, int pid)
 			return 0;
 		}
 	}
+#if DIAG_XPST
+	else if ((*buf == 0xfb) && (*(buf+1) == 0x3)) {
+		for (i = 0; i < (len + 2); i++)		//len + 2 byte crc number
+			*(driver->apps_rsp_buf+i) = *(buf+i);
+		*(uint32_t *)(driver->apps_rsp_buf+(len + 2)) = CONTROL_CHAR;
+		rsp_ctxt = driver->rsp_buf_ctxt;
+		ret = diag_mux_write(DIAG_LOCAL_PROC, driver->apps_rsp_buf, len + 3, rsp_ctxt);
+		if (ret)
+			pr_err("diag: unable to write vendor data, errno:%d\n", ret);
+		return 0;
+	}
+#endif
 	write_len = diag_cmd_chk_stats(buf, len, driver->apps_rsp_buf,
 				       DIAG_MAX_RSP_SIZE);
 	if (write_len > 0) {
@@ -1251,7 +1274,7 @@ int diag_process_apps_pkt(unsigned char *buf, int len, int pid)
 		 * the tools. This is required since the tools is expecting a
 		 * HDLC encoded response for this request.
 		 */
-		pr_debug("diag: In %s, disabling HDLC encoding\n",
+		DIAGFWD_DBUG("diag: In %s, disabling HDLC encoding\n",
 		       __func__);
 		mutex_lock(&driver->md_session_lock);
 		info = diag_md_session_get_pid(pid);
@@ -1300,7 +1323,7 @@ void diag_process_hdlc_pkt(void *data, unsigned int len, int pid)
 	}
 
 	mutex_lock(&driver->diag_hdlc_mutex);
-	pr_debug("diag: In %s, received packet of length: %d, req_buf_len: %d\n",
+	DIAGFWD_DBUG("diag: In %s, received packet of length: %d, req_buf_len: %d\n",
 		 __func__, len, driver->hdlc_buf_len);
 
 	if (driver->hdlc_buf_len >= DIAG_MAX_REQ_SIZE) {
@@ -1309,6 +1332,7 @@ void diag_process_hdlc_pkt(void *data, unsigned int len, int pid)
 		goto fail;
 	}
 
+	DIAGFWD_DBUG("HDLC decode fn, len of data  %d\n", len);
 	hdlc_decode->dest_ptr = driver->hdlc_buf + driver->hdlc_buf_len;
 	hdlc_decode->dest_size = DIAG_MAX_HDLC_BUF_SIZE - driver->hdlc_buf_len;
 	hdlc_decode->src_ptr = data;
@@ -1555,7 +1579,7 @@ static void diag_md_timer_work_fn(struct work_struct *work)
 
 static void hdlc_reset_timer_func(unsigned long data)
 {
-	pr_debug("diag: In %s, re-enabling HDLC encoding\n",
+	DIAGFWD_DBUG("diag: In %s, re-enabling HDLC encoding\n",
 		       __func__);
 
 	if (hdlc_reset) {

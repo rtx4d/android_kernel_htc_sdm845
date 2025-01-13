@@ -134,6 +134,9 @@ ifneq ($(words $(subst :, ,$(CURDIR))), 1)
   $(error main directory cannot contain spaces nor colons)
 endif
 
+export CONFIG_BUILD_ARM64_DT_OVERLAY=y
+export DTC_EXT=$(CURDIR)/dtc
+
 ifneq ($(KBUILD_OUTPUT),)
 # Invoke a second make in the output directory, passing relevant variables
 # check that the output directory actually exists

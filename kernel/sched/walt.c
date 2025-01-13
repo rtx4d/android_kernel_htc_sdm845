@@ -3019,6 +3019,13 @@ unsigned long do_thermal_cap(int cpu, unsigned long thermal_max_freq)
 		return rq->cpu_capacity_orig;
 }
 
+#ifdef CONFIG_QTI_THERMAL_LIMITS_DCVS
+unsigned long lmh_mitigated_freq(unsigned int cpu)
+{
+	return cpu_rq(cpu)->cluster->max_mitigated_freq;
+}
+#endif
+
 static DEFINE_SPINLOCK(cpu_freq_min_max_lock);
 void sched_update_cpu_freq_min_max(const cpumask_t *cpus, u32 fmin, u32 fmax)
 {
@@ -3328,6 +3335,10 @@ void walt_sched_init(struct rq *rq)
 		BUG_ON(!rq->top_tasks[j]);
 		clear_top_tasks_bitmap(rq->top_tasks_bitmap[j]);
 	}
+
+	for(j = 0; j < NR_CPUS; j++)
+		thermal_cap_cpu[j] = SCHED_CAPACITY_SCALE;
+
 	rq->cum_window_demand = 0;
 	rq->notif_pending = false;
 

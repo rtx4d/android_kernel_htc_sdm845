@@ -3375,10 +3375,22 @@ snd_soc_dapm_new_control_unlocked(struct snd_soc_dapm_context *dapm,
 		w->regulator = devm_regulator_get(dapm->dev, w->name);
 		if (IS_ERR(w->regulator)) {
 			ret = PTR_ERR(w->regulator);
+/* HTC_AUD_START Klocwork */
+#if 0
 			if (ret == -EPROBE_DEFER)
 				return ERR_PTR(ret);
+#else
+			if (ret == -EPROBE_DEFER) {
+				kfree(w);
+				return ERR_PTR(ret);
+			}
+#endif
+/* HTC_AUD_END */
 			dev_err(dapm->dev, "ASoC: Failed to request %s: %d\n",
 				w->name, ret);
+/* HTC_AUD_START Klocwork */
+			kfree(w);
+/* HTC_AUD_END */
 			return NULL;
 		}
 
@@ -3395,13 +3407,28 @@ snd_soc_dapm_new_control_unlocked(struct snd_soc_dapm_context *dapm,
 		w->clk = devm_clk_get(dapm->dev, w->name);
 		if (IS_ERR(w->clk)) {
 			ret = PTR_ERR(w->clk);
+/* HTC_AUD_START Klocwork */
+#if 0
 			if (ret == -EPROBE_DEFER)
 				return ERR_PTR(ret);
+#else
+			if (ret == -EPROBE_DEFER) {
+				kfree(w);
+				return ERR_PTR(ret);
+			}
+#endif
+/* HTC_AUD_END */
 			dev_err(dapm->dev, "ASoC: Failed to request %s: %d\n",
 				w->name, ret);
+/* HTC_AUD_START Klocwork */
+			kfree(w);
+/* HTC_AUD_END */
 			return NULL;
 		}
 #else
+/* HTC_AUD_START Klocwork */
+		kfree(w);
+/* HTC_AUD_END */
 		return NULL;
 #endif
 		break;

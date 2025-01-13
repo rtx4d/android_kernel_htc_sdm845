@@ -918,11 +918,14 @@ static bool cam_icp_check_clk_update(struct cam_icp_hw_mgr *hw_mgr,
 	if (!clk_info->frame_cycles)
 		return cam_icp_default_clk_update(hw_mgr_clk_info);
 
+    
 	/* Calculate base clk rate */
 	base_clk = cam_icp_mgr_calc_base_clk(
 		clk_info->frame_cycles, clk_info->budget_ns);
 	ctx_data->clk_info.rt_flag = clk_info->rt_flag;
 
+	CAM_ERR_RATE_LIMIT(CAM_ICP, "bclk %d", base_clk);
+       base_clk = 600000000;
 	if (busy)
 		rc = cam_icp_update_clk_busy(hw_mgr, ctx_data,
 			hw_mgr_clk_info, clk_info, base_clk);

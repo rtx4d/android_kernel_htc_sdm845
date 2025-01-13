@@ -53,7 +53,7 @@ static inline bool fence_completed(struct msm_fence_context *fctx, uint32_t fenc
 int msm_wait_fence(struct msm_fence_context *fctx, uint32_t fence,
 		ktime_t *timeout, bool interruptible)
 {
-	int ret;
+	int ret = 0;
 
 	if (fence > fctx->last_fence) {
 		DRM_ERROR("%s: waiting on invalid fence: %u (of %u)\n",

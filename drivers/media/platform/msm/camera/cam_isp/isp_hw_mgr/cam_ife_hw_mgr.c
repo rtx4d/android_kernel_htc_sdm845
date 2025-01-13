@@ -52,6 +52,8 @@ static uint32_t blob_type_hw_cmd_map[CAM_ISP_GENERIC_BLOB_TYPE_MAX] = {
 
 static struct cam_ife_hw_mgr g_ife_hw_mgr;
 
+static void cam_ife_hw_mgr_deinit_hw(struct cam_ife_hw_mgr_ctx *ctx);//htc
+
 static int cam_ife_notify_safe_lut_scm(bool safe_trigger)
 {
 	uint32_t camera_hw_version, rc = 0;
@@ -298,7 +300,11 @@ static int cam_ife_hw_mgr_init_hw(
 		if (rc) {
 			CAM_ERR(CAM_ISP, "Can not INIT IFE CID(id :%d)",
 				 hw_mgr_res->res_id);
+#if 0//htc
 			return rc;
+#else
+			goto deinit;
+#endif//htc end
 		}
 	}
 
@@ -311,7 +317,11 @@ static int cam_ife_hw_mgr_init_hw(
 		if (rc) {
 			CAM_ERR(CAM_ISP, "Can not INIT IFE CSID(id :%d)",
 				 hw_mgr_res->res_id);
+#if 0//htc
 			return rc;
+#else
+			goto deinit;
+#endif//htc end
 		}
 	}
 
@@ -323,7 +333,11 @@ static int cam_ife_hw_mgr_init_hw(
 		if (rc) {
 			CAM_ERR(CAM_ISP, "Can not INIT IFE SRC (%d)",
 				 hw_mgr_res->res_id);
+#if 0//htc
 			return rc;
+#else
+			goto deinit;
+#endif//htc end
 		}
 	}
 
@@ -336,11 +350,22 @@ static int cam_ife_hw_mgr_init_hw(
 		if (rc) {
 			CAM_ERR(CAM_ISP, "Can not INIT IFE OUT (%d)",
 				 ctx->res_list_ife_out[i].res_id);
+#if 0//htc
 			return rc;
+#else
+			goto deinit;
+#endif//htc end
 		}
 	}
 
 	return rc;
+//htc
+deinit:
+	CAM_ERR(CAM_ISP, "go cam_ife_hw_mgr_deinit_hw");
+	ctx->init_done = true;
+	cam_ife_hw_mgr_deinit_hw(ctx);
+	return rc;
+//htc end
 }
 
 static void cam_ife_hw_mgr_deinit_hw(
@@ -1468,8 +1493,8 @@ void cam_ife_cam_cdm_callback(uint32_t handle, void *userdata,
 	if (status == CAM_CDM_CB_STATUS_BL_SUCCESS) {
 		complete(&ctx->config_done_complete);
 		CAM_DBG(CAM_ISP,
-			"Called by CDM hdl=%x, udata=%pK, status=%d, cookie=%llu",
-			 handle, userdata, status, cookie);
+			"Called by CDM hdl=%x, udata=%pK, status=%d, cookie=%llu ctx_index=%d",
+			 handle, userdata, status, cookie, ctx->ctx_index);
 	} else {
 		CAM_WARN(CAM_ISP,
 			"Called by CDM hdl=%x, udata=%pK, status=%d, cookie=%llu",
@@ -1495,7 +1520,7 @@ static int cam_ife_mgr_acquire_hw(void *hw_mgr_priv,
 	uint32_t                           total_rdi_port = 0;
 	uint32_t                           in_port_length = 0;
 
-	CAM_DBG(CAM_ISP, "Enter...");
+	CAM_WARN(CAM_ISP, "Enter...");
 
 	if (!acquire_args || acquire_args->num_acq <= 0) {
 		CAM_ERR(CAM_ISP, "Nothing to acquire. Seems like error");
@@ -1537,8 +1562,8 @@ static int cam_ife_mgr_acquire_hw(void *hw_mgr_priv,
 		goto free_ctx;
 	}
 
-	CAM_DBG(CAM_ISP, "Successfully acquired the CDM HW hdl=%x",
-		cdm_acquire.handle);
+	CAM_WARN(CAM_ISP, "Successfully acquired the CDM HW hdl=%x ctx id %d",
+		cdm_acquire.handle, ife_ctx->ctx_index);
 	ife_ctx->cdm_handle = cdm_acquire.handle;
 	ife_ctx->cdm_ops = cdm_acquire.ops;
 
@@ -1612,7 +1637,7 @@ static int cam_ife_mgr_acquire_hw(void *hw_mgr_priv,
 
 	cam_ife_hw_mgr_put_ctx(&ife_hw_mgr->used_ctx_list, &ife_ctx);
 
-	CAM_DBG(CAM_ISP, "Exit...(success)");
+	CAM_WARN(CAM_ISP, "Exit...(success)");
 
 	return 0;
 free_res:
@@ -1621,7 +1646,7 @@ free_res:
 free_ctx:
 	cam_ife_hw_mgr_put_ctx(&ife_hw_mgr->free_ctx_list, &ife_ctx);
 err:
-	CAM_DBG(CAM_ISP, "Exit...(rc=%d)", rc);
+	CAM_WARN(CAM_ISP, "Exit...(rc=%d)", rc);
 	return rc;
 }
 
@@ -1780,18 +1805,18 @@ static int cam_ife_mgr_config_hw(void *hw_mgr_priv,
 		if (cfg->init_packet) {
 			rc = wait_for_completion_timeout(
 				&ctx->config_done_complete,
-				msecs_to_jiffies(30));
+				msecs_to_jiffies(3000));
 			if (rc <= 0) {
 				CAM_ERR(CAM_ISP,
-					"config done completion timeout for req_id=%llu rc = %d",
-					cfg->request_id, rc);
+					"config done completion timeout for req_id=%llu rc=%d ctx_index %d",
+					cfg->request_id, rc, ctx->ctx_index);
 				if (rc == 0)
 					rc = -ETIMEDOUT;
 			} else {
 				rc = 0;
 				CAM_DBG(CAM_ISP,
-					"config done Success for req_id=%llu",
-					cfg->request_id);
+					"config done Success for req_id=%llu ctx_index %d",
+					cfg->request_id, ctx->ctx_index);
 			}
 		}
 	} else {
@@ -2349,7 +2374,7 @@ static int cam_ife_mgr_release_hw(void *hw_mgr_priv,
 		return -EPERM;
 	}
 
-	CAM_DBG(CAM_ISP, "Enter...ctx id:%d",
+	CAM_WARN(CAM_ISP, "Enter...ctx id:%d",
 		ctx->ctx_index);
 
 	if (ctx->init_done)
@@ -2377,7 +2402,7 @@ static int cam_ife_mgr_release_hw(void *hw_mgr_priv,
 		ctx->eof_cnt[i] = 0;
 		ctx->epoch_cnt[i] = 0;
 	}
-	CAM_DBG(CAM_ISP, "Exit...ctx id:%d",
+	CAM_WARN(CAM_ISP, "Exit...ctx id:%d",
 		ctx->ctx_index);
 	cam_ife_hw_mgr_put_ctx(&hw_mgr->free_ctx_list, &ctx);
 	return rc;

@@ -41,6 +41,8 @@ config ARM64
 	select ARCH_HAS_UBSAN_SANITIZE_ALL
 	select ARM_AMBA
 	select ARM_ARCH_TIMER
+	select HAVE_KERNEL_GZIP
+	select HAVE_KERNEL_LZ4
 	select ARM_GIC
 	select AUDIT_ARCH_COMPAT_GENERIC
 	select ARM_GIC_V2M if PCI
@@ -622,6 +624,13 @@ config SCHED_SMT
 	  MultiThreading at a cost of slightly increased overhead in some
 	  places. If unsure say N here.
 
+config HTC_POWER_DEBUG
+	bool "Support htc power debug feature"
+	help
+	  Use this to enable htc power debug feature including pm statistics,
+	  clock/gpio/qpnp pin dump, wakeup source, kerenl top and autosuspend
+	  stage footprint
+
 config NR_CPUS
 	int "Maximum number of CPUs (2-4096)"
 	range 2 4096
@@ -640,7 +649,7 @@ config HOTPLUG_CPU
 # selected platforms.
 config ARCH_NR_GPIO
 	int
-	default 1280 if ARCH_QCOM
+	default 2048 if ARCH_QCOM
 	default 256
 	help
 	  Maximum number of GPIOs in the system.
@@ -1174,6 +1183,8 @@ choice
 
 	config IMG_GZ_DTB
 		bool "Image.gz-dtb"
+	config IMG_LZ4_DTB
+		bool "Image.lz4-dtb"
 	config IMG_DTB
 		bool "Image-dtb"
 endchoice
@@ -1182,6 +1193,7 @@ config BUILD_ARM64_APPENDED_KERNEL_IMAGE_NAME
 	string
 	depends on BUILD_ARM64_APPENDED_DTB_IMAGE
 	default "Image.gz-dtb" if IMG_GZ_DTB
+	default "Image.lz4-dtb" if IMG_LZ4_DTB
 	default "Image-dtb" if IMG_DTB
 
 config BUILD_ARM64_APPENDED_DTB_IMAGE_NAMES
@@ -1297,3 +1309,5 @@ source "arch/arm64/crypto/Kconfig"
 endif
 
 source "lib/Kconfig"
+
+source "arch/arm64/Kconfig.htc"

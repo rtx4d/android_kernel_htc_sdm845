@@ -391,9 +391,17 @@ int snd_usb_add_audio_stream(struct snd_usb_audio *chip,
 	pcm->private_free = snd_usb_audio_pcm_free;
 	pcm->info_flags = 0;
 	if (chip->pcm_devs > 0)
+/* HTC_AUD_START Klocwork */
+#if 0
 		sprintf(pcm->name, "USB Audio #%d", chip->pcm_devs);
 	else
 		strcpy(pcm->name, "USB Audio");
+#else
+		snprintf(pcm->name, sizeof(pcm->name), "USB Audio #%d", chip->pcm_devs);
+	else
+		strlcpy(pcm->name, "USB Audio", sizeof(pcm->name));
+#endif
+/* HTC_AUD_END */
 
 	snd_usb_init_substream(as, stream, fp);
 
@@ -516,7 +524,12 @@ int snd_usb_parse_audio_interface(struct snd_usb_audio *chip, int iface_no)
 
 	/* parse the interface's altsettings */
 	iface = usb_ifnum_to_if(dev, iface_no);
-
+/* HTC_AUD_START Klocwork */
+	if (iface == NULL) {
+		dev_err(&dev->dev, "unknown interface no %u\n", iface_no);
+		return -EINVAL;
+	}
+/* HTC_AUD_END */
 	num = iface->num_altsetting;
 
 	/*

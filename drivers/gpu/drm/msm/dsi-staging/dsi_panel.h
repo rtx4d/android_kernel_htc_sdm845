@@ -36,6 +36,26 @@
 
 #define DSI_MODE_MAX 5
 
+/**
+ *  HTC: A Struct for Backlight 1.0.
+ *  Apply on backlight_transfer function.
+ *  The function will base on brt_data and bl_data to transfer brt and bl value.
+ *  The brt and bl was direct map. For internal value, we will use interpolation method to get transfer value.
+ *
+ *  size: A value to save brt and bl table size.
+ *  brt_data: A point referring to brightness table related data.
+ *  bl_data: A point referring to backlight table related data
+ */
+#define BACKLIGHT_TABLE_MAX_LENGTH	10
+
+struct backlight_table_v1_0 {
+	int size;
+	u16 *brt_data;
+	u16 *bl_data;
+	u16 *bl_data_raw;
+};
+
+
 enum dsi_panel_rotation {
 	DSI_PANEL_ROTATE_NONE = 0,
 	DSI_PANEL_ROTATE_HV_FLIP,
@@ -47,6 +67,7 @@ enum dsi_backlight_type {
 	DSI_BACKLIGHT_PWM = 0,
 	DSI_BACKLIGHT_WLED,
 	DSI_BACKLIGHT_DCS,
+	DSI_BACKLIGHT_I2C,
 	DSI_BACKLIGHT_UNKNOWN,
 	DSI_BACKLIGHT_MAX,
 };
@@ -94,6 +115,7 @@ struct dsi_backlight_config {
 	u32 bl_scale_ad;
 
 	int en_gpio;
+	int i2c_sel_gpio;
 	/* PWM params */
 	bool pwm_pmi_control;
 	u32 pwm_pmic_bank;
@@ -103,6 +125,15 @@ struct dsi_backlight_config {
 	/* WLED params */
 	struct led_trigger *wled;
 	struct backlight_device *bd;
+
+	/* backlight table */
+	struct backlight_table_v1_0 brt_bl_table;
+	struct device_node *i2c_bd_node;
+	struct backlight_device *i2c_bd;
+
+	u32 burst_on_level;
+	u32 burst_bl_value;
+
 };
 
 struct dsi_reset_seq {
@@ -118,6 +149,7 @@ struct dsi_panel_reset_config {
 	int disp_en_gpio;
 	int lcd_mode_sel_gpio;
 	u32 mode_sel_state;
+	bool reset_keep_high;
 };
 
 enum esd_check_status_mode {
@@ -145,6 +177,12 @@ enum dsi_panel_type {
 	DSI_PANEL = 0,
 	EXT_BRIDGE,
 	DSI_PANEL_TYPE_MAX,
+};
+
+struct disp_en_source {
+	struct regulator *vreg;
+	u32 min_uV;
+	u32 max_uV;
 };
 
 struct dsi_panel {
@@ -175,6 +213,7 @@ struct dsi_panel {
 	struct dsi_pinctrl_info pinctrl;
 	struct drm_panel_hdr_properties hdr_props;
 	struct drm_panel_esd_config esd_config;
+	struct disp_en_source disp_en_src;
 
 	bool lp11_init;
 	bool ulps_enabled;
@@ -189,6 +228,8 @@ struct dsi_panel {
 	enum dsi_dms_mode dms_mode;
 
 	bool sync_broadcast_en;
+	bool support_ddic_color_mode;
+	u32 current_color_mode;
 };
 
 static inline bool dsi_panel_ulps_feature_enabled(struct dsi_panel *panel)

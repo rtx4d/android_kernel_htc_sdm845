@@ -338,6 +338,9 @@ struct kgsl_device {
 	struct clk *l3_clk;
 	unsigned int l3_freq[MAX_L3_LEVELS];
 	unsigned int num_l3_pwrlevels;
+
+	/* used to switch htc decision for gpu fault */
+	int gpu_fault_no_panic;
 };
 
 #define KGSL_MMU_DEVICE(_mmu) \
@@ -562,12 +565,19 @@ struct kgsl_snapshot_object {
 struct kgsl_device *kgsl_get_device(int dev_idx);
 
 static inline void kgsl_process_add_stats(struct kgsl_process_private *priv,
-	unsigned int type, uint64_t size)
+				unsigned int type, uint64_t size)
 {
 	priv->stats[type].cur += size;
 	if (priv->stats[type].max < priv->stats[type].cur)
 		priv->stats[type].max = priv->stats[type].cur;
 }
+
+/*
+static inline void kgsl_process_sub_stats(struct kgsl_process_private *priv,
+				unsigned int type, size_t size)
+{
+	atomic_long_sub(size, &priv->stats[type].cur);
+}*/
 
 static inline bool kgsl_is_register_offset(struct kgsl_device *device,
 				unsigned int offsetwords)

@@ -57,6 +57,8 @@
 	asoc-codec-names = "msm-stub-codec.1",
 			   "msm-ext-disp-audio-codec-rx";
 
+/*
+	// HTC_AUD_START remove useless QCT define
 	qcom,usbc-analog-en1-gpio = <&wcd_usbc_analog_en1_gpio>;
 	qcom,usbc-analog-en2-gpio = <&tlmm 51 0>;
 	pinctrl-names = "aud_active", "aud_sleep";
@@ -68,16 +70,21 @@
 			<&wsa881x_0213>, <&wsa881x_0214>;
 	qcom,wsa-aux-dev-prefix = "SpkrLeft", "SpkrRight",
 				  "SpkrLeft", "SpkrRight";
+	// HTC_AUD_END remove useless QCT define
+*/
 };
 
 &soc {
+/*
+	// HTC_AUD_START remove useless QCT define
 	wcd_usbc_analog_en1_gpio: msm_cdc_pinctrl@49 {
 		compatible = "qcom,msm-cdc-pinctrl";
 		pinctrl-names = "aud_active", "aud_sleep";
 		pinctrl-0 = <&wcd_usbc_analog_en1_active>;
 		pinctrl-1 = <&wcd_usbc_analog_en1_idle>;
 	};
-
+	// HTC_AUD_END remove useless QCT define
+*/
 	wcd9xxx_intc: wcd9xxx-irq {
 		status = "ok";
 		compatible = "qcom,wcd9xxx-irq";

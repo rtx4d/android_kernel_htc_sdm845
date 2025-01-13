@@ -537,6 +537,9 @@ int dsi_conn_set_info_blob(struct drm_connector *connector,
 	case DSI_BACKLIGHT_DCS:
 		sde_kms_info_add_keystr(info, "backlight type", "dcs");
 		break;
+	case DSI_BACKLIGHT_I2C:
+		sde_kms_info_add_keystr(info, "backlight type", "i2c");
+		break;
 	default:
 		pr_debug("invalid panel backlight type:%d\n",
 						panel->bl_config.type);

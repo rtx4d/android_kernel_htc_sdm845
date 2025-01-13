@@ -277,6 +277,7 @@ header-y += mhi.h
 header-y += mic_common.h
 header-y += mic_ioctl.h
 header-y += mii.h
+header-y += minifb.h
 header-y += minix_fs.h
 header-y += mman.h
 header-y += mmtimer.h

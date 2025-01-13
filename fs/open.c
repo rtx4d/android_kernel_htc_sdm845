@@ -34,6 +34,10 @@
 
 #include "internal.h"
 
+#ifdef CONFIG_HTC_FD_MONITOR
+extern int in_fd_list(const int fd, const int mid);
+#endif
+
 int do_truncate2(struct vfsmount *mnt, struct dentry *dentry, loff_t length,
 		unsigned int time_attrs, struct file *filp)
 {
@@ -1054,11 +1058,18 @@ struct file *filp_clone_open(struct file *oldfile)
 }
 EXPORT_SYMBOL(filp_clone_open);
 
+extern atomic_t k_power_off;
 long do_sys_open(int dfd, const char __user *filename, int flags, umode_t mode)
 {
 	struct open_flags op;
 	int fd = build_open_flags(flags, mode, &op);
 	struct filename *tmp;
+
+	if (atomic_read(&k_power_off)) {
+		printk_ratelimited(KERN_WARNING "VFS reject do_sys_open: %s pid:%d(%s)(parent:%d/%s)\n", __func__,
+		current->pid, current->comm, current->parent->pid, current->parent->comm);
+		return -EROFS;
+	}
 
 	if (fd)
 		return fd;
@@ -1145,8 +1156,16 @@ EXPORT_SYMBOL(filp_close);
  */
 SYSCALL_DEFINE1(close, unsigned int, fd)
 {
-	int retval = __close_fd(current->files, fd);
-
+	int retval;
+#ifdef CONFIG_HTC_FD_MONITOR
+	if (in_fd_list(fd, 0) == 1) {
+		printk("fd error: %s(%d) tries to close fd=%d illegally\n", current->comm, current->pid, fd);
+		force_sig(SIGABRT, current);
+		force_sig(SIGABRT, current);
+		return 0xBADFD;
+	}
+#endif
+	retval = __close_fd(current->files, fd);
 	/* can't restart close syscall because file table entry was cleared */
 	if (unlikely(retval == -ERESTARTSYS ||
 		     retval == -ERESTARTNOINTR ||

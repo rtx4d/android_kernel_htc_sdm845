@@ -16,6 +16,7 @@
 #include <linux/sched.h>
 #include <linux/hypervisor.h>
 #include <linux/suspend.h>
+#include <linux/htc_flags.h>
 
 #include "smpboot.h"
 
@@ -37,6 +38,8 @@ static void flush_smp_call_function_queue(bool warn_cpu_offline);
 /* CPU mask indicating which CPUs to bring online during smp_init() */
 static bool have_boot_cpu_mask;
 static cpumask_var_t boot_cpu_mask;
+int have_cpu_mask;
+struct cpumask cpu_mask;
 
 int smpcfd_prepare_cpu(unsigned int cpu)
 {
@@ -583,6 +586,18 @@ static inline void free_boot_cpu_mask(void)
 void __init smp_init(void)
 {
 	unsigned int cpu;
+	int mask;
+
+	mask = get_cpumask_flag();
+	if (mask) {
+		struct cpumask dest;
+
+		*cpu_mask.bits = (long)mask;
+		if (!cpumask_test_cpu(0, &cpu_mask) && !cpumask_andnot(&dest, &cpu_mask, cpu_possible_mask))
+			have_cpu_mask = 1;
+		else
+			printk(KERN_ERR "cpumask error : 0x%X\n", mask);
+	}
 
 	idle_threads_init();
 	cpuhp_threads_init();

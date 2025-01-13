@@ -37,6 +37,20 @@
 
 #include "ion.h"
 
+/*
+ * enum ion_heap_mem_usage - list of all ion memory statistics categories
+ * @ION_IN_USE:		Number of pages used by clients from heaps in ION_HEAP_TYPE_SYSTEM type
+ * @ION_TOTAL:		Number of pages allocated from buddy, including pages in use
+ *			and in free page pools
+ *
+ * @ION_USAGE_MAX:	Helper for iterating over memory statistics
+ */
+enum ion_heap_mem_usage {
+	ION_IN_USE = 0U,
+	ION_TOTAL = 1U,
+	ION_USAGE_MAX,
+};
+
 struct ion_buffer *ion_handle_buffer(struct ion_handle *handle);
 
 /**
@@ -307,6 +321,26 @@ int ion_system_secure_heap_unassign_sg(struct sg_table *sgt, int source_vmid);
 int ion_system_secure_heap_assign_sg(struct sg_table *sgt, int dest_vmid);
 int ion_system_secure_heap_prefetch(struct ion_heap *heap, void *data);
 int ion_system_secure_heap_drain(struct ion_heap *heap, void *data);
+
+/*
+ *ion_alloc_inc_usage - Add memory usage into ion memory statistics
+ *			 according to its usage
+ *
+ * @usage - the location of used memory
+ * @size - the size of used memory
+ */
+void ion_alloc_inc_usage(const enum ion_heap_mem_usage usage,
+			 const size_t size);
+
+/*
+ * ion_alloc_dec_usage - subtract memory usage from ion memory statistics
+ *			 according to its usage
+ *
+ * @usage - the location of used memory
+ * @size - the size of used memory
+ */
+void ion_alloc_dec_usage(const enum ion_heap_mem_usage usage,
+			 const size_t size);
 
 /**
  * ion_heap_init_shrinker

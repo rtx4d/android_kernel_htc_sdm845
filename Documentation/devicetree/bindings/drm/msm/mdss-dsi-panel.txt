@@ -553,6 +553,13 @@ Additional properties added to the second level nodes that represent timings pro
 Note, if a given optional qcom,* binding is not present, then the driver will configure
 the default values specified.
 
+HTC feature add:
+- htc,mdss-dsi-panel-data-used: Boolean flag to catch the panel struct into dsi_htc_util.c
+  for the usage of HTC feature.
+- htc,ddic-color-modes-0: the display support ddic color mode 0(native)
+- htc,ddic-color-modes-7: the display support ddic color mode 7(sRGB)
+- htc,ddic-color-modes-9: the display support ddic color mode 9(DCI-P3)
+
 Example:
 &mdss_mdp {
 	dsi_sim_vid: qcom,mdss_dsi_sim_video {

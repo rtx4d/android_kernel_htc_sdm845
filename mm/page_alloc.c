@@ -6883,6 +6883,23 @@ void setup_per_zone_wmarks(void)
 	mutex_unlock(&zonelists_mutex);
 }
 
+int vm_inactive_ratio = 0;
+int vm_inactive_ratio_handler(struct ctl_table *table, int write,
+	void __user *buffer, size_t *length, loff_t *ppos)
+{
+	struct zone *zone;
+	int old_ratio = vm_inactive_ratio;
+	int ret;
+
+	ret = proc_dointvec_minmax(table, write, buffer, length, ppos);
+	if (ret == 0 && write && vm_inactive_ratio != old_ratio) {
+		for_each_zone(zone){
+			zone->zone_pgdat->inactive_ratio = vm_inactive_ratio;
+		}
+	}
+	return ret;
+}
+
 /*
  * Initialise min_free_kbytes.
  *

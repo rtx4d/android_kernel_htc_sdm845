@@ -21,6 +21,7 @@
 #include <soc/qcom/scm.h>
 #include <soc/qcom/secure_buffer.h>
 #include <linux/ratelimit.h>
+#include <linux/msm_kgsl.h>
 
 #include "kgsl.h"
 #include "kgsl_sharedmem.h"
@@ -171,7 +172,7 @@ static struct kgsl_mem_entry_attribute debug_memstats[] = {
 static ssize_t
 mem_entry_show(struct kgsl_process_private *priv, int type, char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "%llu\n", priv->stats[type].cur);
+    return snprintf(buf, PAGE_SIZE, "%llu\n", priv->stats[type].cur);
 }
 
 /**
@@ -349,6 +350,14 @@ static ssize_t kgsl_drv_full_cache_threshold_show(struct device *dev,
 			kgsl_driver.full_cache_threshold);
 }
 
+static ssize_t kgsl_alloc_show(struct device *dev,
+					struct device_attribute *attr,
+					char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%d\n",
+			kgsl_get_alloc_size(true));
+}
+
 static DEVICE_ATTR(vmalloc, 0444, kgsl_drv_memstat_show, NULL);
 static DEVICE_ATTR(vmalloc_max, 0444, kgsl_drv_memstat_show, NULL);
 static DEVICE_ATTR(page_alloc, 0444, kgsl_drv_memstat_show, NULL);
@@ -362,6 +371,7 @@ static DEVICE_ATTR(mapped_max, 0444, kgsl_drv_memstat_show, NULL);
 static DEVICE_ATTR(full_cache_threshold, 0644,
 		kgsl_drv_full_cache_threshold_show,
 		kgsl_drv_full_cache_threshold_store);
+static DEVICE_ATTR(kgsl_alloc, 0444, kgsl_alloc_show, NULL);
 
 static const struct device_attribute *drv_attr_list[] = {
 	&dev_attr_vmalloc,
@@ -375,6 +385,7 @@ static const struct device_attribute *drv_attr_list[] = {
 	&dev_attr_mapped,
 	&dev_attr_mapped_max,
 	&dev_attr_full_cache_threshold,
+	&dev_attr_kgsl_alloc,
 	NULL
 };
 
@@ -519,7 +530,6 @@ static void kgsl_page_alloc_free(struct kgsl_memdesc *memdesc)
 		kgsl_pool_free_pages(memdesc->pages, memdesc->page_count);
 	else
 		kgsl_pool_free_sgt(memdesc->sgt);
-
 }
 
 /*
@@ -966,6 +976,9 @@ kgsl_sharedmem_page_alloc_user(struct kgsl_memdesc *memdesc,
 
 	KGSL_STATS_ADD(memdesc->size, &kgsl_driver.stats.page_alloc,
 		&kgsl_driver.stats.page_alloc_max);
+
+	if (memdesc->private)
+		kgsl_process_add_stats(memdesc->private, KGSL_MEM_ENTRY_PAGE_ALLOC, size);
 
 done:
 	if (ret) {

@@ -48,6 +48,7 @@
 
 #include <asm/uaccess.h>
 #include <asm/sections.h>
+#include <linux/htc_debug_tools.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/printk.h>
@@ -342,11 +343,15 @@ struct printk_log {
 	u8 facility;		/* syslog facility */
 	u8 flags:5;		/* internal record flags */
 	u8 level:3;		/* syslog level */
+	unsigned int cpu;
+	pid_t pid;
 }
 #ifdef CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS
 __packed __aligned(4)
 #endif
 ;
+
+struct printk_log *last_msg = NULL;
 
 /*
  * The logbuf_lock protects kmsg buffer, indices, counters.  This can be taken
@@ -588,6 +593,9 @@ static int log_store(int facility, int level,
 	/* insert message */
 	log_next_idx += msg->len;
 	log_next_seq++;
+
+	/* record last_msg for extension */
+	last_msg = msg;
 
 	return msg->text_len;
 }
@@ -1172,6 +1180,43 @@ static inline void boot_delay_msec(int level)
 }
 #endif
 
+static bool printk_cpu = IS_ENABLED(CONFIG_PRINTK_CPU_ID);
+module_param_named(cpu, printk_cpu, bool, S_IRUGO | S_IWUSR);
+
+static bool printk_pid = IS_ENABLED(CONFIG_PRINTK_PID);
+module_param_named(pid, printk_pid, bool, S_IRUGO | S_IWUSR);
+
+static size_t print_cpu(unsigned int cpu, char *buf)
+{
+	if (!printk_cpu)
+		return 0;
+
+	if (!buf)
+		return snprintf(NULL, 0, "c%u ", cpu);
+
+	return sprintf(buf, "c%u ", cpu);
+}
+
+static size_t print_pid(pid_t pid, char *buf)
+{
+	if (!printk_pid)
+		return 0;
+
+	if (!buf)
+		return snprintf(NULL, 0, "%6u ", pid);
+
+	return sprintf(buf, "%6u ", pid);
+}
+
+static void update_msg_ext(unsigned int cpu, pid_t pid)
+{
+	if (!last_msg)
+		return;
+
+	last_msg->cpu = cpu;
+	last_msg->pid = pid;
+}
+
 static bool printk_time = IS_ENABLED(CONFIG_PRINTK_TIME);
 module_param_named(time, printk_time, bool, S_IRUGO | S_IWUSR);
 
@@ -1211,6 +1256,9 @@ static size_t print_prefix(const struct printk_log *msg, bool syslog, char *buf)
 	}
 
 	len += print_time(msg->ts_nsec, buf ? buf + len : NULL);
+	len += print_cpu(msg->cpu, buf ? buf + len : NULL);
+	len += print_pid(msg->pid, buf ? buf + len : NULL);
+
 	return len;
 }
 
@@ -1426,11 +1474,33 @@ static int syslog_print_all(char __user *buf, int size, bool clear)
 	return len;
 }
 
+#if defined(CONFIG_HTC_DEBUG_BOOTLOADER_LOG)
+static inline int insert_to_buf(char __user *buf, int buf_len, const char* str)
+{
+	int len = strlen(str);
+
+	if (buf_len < len)
+		return 0;
+
+	if (copy_to_user(buf, str, len)) {
+		pr_warn("%s: copy_to_user failed\n", __func__);
+		return 0;
+	}
+
+	return len;
+}
+#endif
+
 int do_syslog(int type, char __user *buf, int len, int source)
 {
 	bool clear = false;
 	static int saved_console_loglevel = LOGLEVEL_DEFAULT;
 	int error;
+#if defined(CONFIG_HTC_DEBUG_BOOTLOADER_LOG)
+	ssize_t lk_len = 0, lk_len_total = 0;
+#define HB_LAST_TITLE "[HB LAST]\n"
+#define HB_LOG_TITLE "[HB LOG]\n"
+#endif
 
 	error = check_syslog_permissions(type, source);
 	if (error)
@@ -1476,6 +1546,44 @@ int do_syslog(int type, char __user *buf, int len, int source)
 		}
 		error = syslog_print_all(buf, len, clear);
 		break;
+#if defined(CONFIG_HTC_DEBUG_BOOTLOADER_LOG)
+	/* Read last kernel messages + LK/LAST LK log*/
+	case SYSLOG_ACTION_READ_ALL_APPEND_LK:
+		error = -EINVAL;
+		if (!buf || len < 0)
+			goto out;
+		error = 0;
+		if (!len)
+			goto out;
+		if (!access_ok(VERIFY_WRITE, buf, len)) {
+			error = -EFAULT;
+			goto out;
+		}
+
+		lk_len = insert_to_buf(buf, len, HB_LAST_TITLE);
+		len -= lk_len;
+		buf += lk_len;
+		lk_len_total += lk_len;
+
+		lk_len = bldr_last_log_read_once(buf, len);
+		len -= lk_len;
+		buf += lk_len;
+		lk_len_total += lk_len;
+
+		lk_len = insert_to_buf(buf, len, HB_LOG_TITLE);
+		len -= lk_len;
+		buf += lk_len;
+		lk_len_total += lk_len;
+
+		lk_len = bldr_log_read_once(buf, len);
+		len -= lk_len;
+		buf += lk_len;
+		lk_len_total += lk_len;
+
+		error = syslog_print_all(buf, len, clear);
+		error += lk_len_total;
+           break;
+#endif
 	/* Clear ring buffer */
 	case SYSLOG_ACTION_CLEAR:
 		syslog_print_all(NULL, 0, true);
@@ -1642,6 +1750,8 @@ static struct cont {
 	u8 facility;			/* log facility of first message */
 	enum log_flags flags;		/* prefix, newline flags */
 	bool flushed:1;			/* buffer sealed and committed */
+	unsigned int cpu;
+	pid_t pid;
 } cont;
 
 static void cont_flush(void)
@@ -1659,6 +1769,7 @@ static void cont_flush(void)
 		log_store(cont.facility, cont.level, cont.flags | LOG_NOCONS,
 			  cont.ts_nsec, NULL, 0, cont.buf, cont.len);
 		cont.flushed = true;
+		update_msg_ext(cont.cpu, cont.pid);
 	} else {
 		/*
 		 * If no fragment of this line ever reached the console,
@@ -1666,6 +1777,7 @@ static void cont_flush(void)
 		 */
 		log_store(cont.facility, cont.level, cont.flags, 0,
 			  NULL, 0, cont.buf, cont.len);
+		update_msg_ext(cont.cpu, cont.pid);
 		cont.len = 0;
 	}
 }
@@ -1693,6 +1805,8 @@ static bool cont_add(int facility, int level, enum log_flags flags, const char *
 		cont.flags = flags;
 		cont.cons = 0;
 		cont.flushed = false;
+		cont.cpu = smp_processor_id();
+		cont.pid = current->pid;
 	}
 
 	memcpy(cont.buf + cont.len, text, len);
@@ -1739,7 +1853,7 @@ static size_t cont_print_text(char *text, size_t size)
 	return textlen;
 }
 
-static size_t log_output(int facility, int level, enum log_flags lflags, const char *dict, size_t dictlen, char *text, size_t text_len)
+static size_t log_output(int facility, int level, enum log_flags lflags, const char *dict, size_t dictlen, char *text, size_t text_len, unsigned int cpu, pid_t pid)
 {
 	/*
 	 * If an earlier line was buffered, and we're a continuation
@@ -1765,7 +1879,10 @@ static size_t log_output(int facility, int level, enum log_flags lflags, const c
 	}
 
 	/* Store it in the record log */
-	return log_store(facility, level, lflags, 0, dict, dictlen, text, text_len);
+	text_len = log_store(facility, level, lflags, 0, dict, dictlen, text, text_len);
+	update_msg_ext(cpu, pid);
+
+	return text_len;
 }
 
 asmlinkage int vprintk_emit(int facility, int level,
@@ -1829,6 +1946,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 		printed_len += log_store(0, 2, LOG_PREFIX|LOG_NEWLINE, 0,
 					 NULL, 0, recursion_msg,
 					 strlen(recursion_msg));
+		update_msg_ext(logbuf_cpu, current->pid);
 	}
 
 	nmi_message_lost = get_nmi_message_lost();
@@ -1838,6 +1956,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 				     nmi_message_lost);
 		printed_len += log_store(0, 2, LOG_PREFIX|LOG_NEWLINE, 0,
 					 NULL, 0, textbuf, text_len);
+		update_msg_ext(logbuf_cpu, current->pid);
 	}
 
 	/*
@@ -1884,7 +2003,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 	if (dict)
 		lflags |= LOG_PREFIX|LOG_NEWLINE;
 
-	printed_len += log_output(facility, level, lflags, dict, dictlen, text, text_len);
+	printed_len += log_output(facility, level, lflags, dict, dictlen, text, text_len, logbuf_cpu, current->pid);
 
 	logbuf_cpu = UINT_MAX;
 	raw_spin_unlock(&logbuf_lock);
