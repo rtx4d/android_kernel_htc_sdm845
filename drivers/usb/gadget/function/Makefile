@@ -66,5 +66,14 @@ usb_f_qdss-y			:= f_qdss.o u_qdss.o
 obj-$(CONFIG_USB_F_QDSS)        += usb_f_qdss.o
 usb_f_qcrndis-y			:= f_qc_rndis.o
 obj-$(CONFIG_USB_F_QCRNDIS)	+= usb_f_qcrndis.o
+# HTC
+usb_f_charger-y			:= f_charger.o
+obj-$(CONFIG_USB_F_CHARGER)	+= usb_f_charger.o
+usb_f_mirrorlink-y		:= f_mirrorlink.o
+obj-$(CONFIG_USB_F_MIRRORLINK)	+= usb_f_mirrorlink.o
+usb_f_autobot-y			:= f_autobot.o
+obj-$(CONFIG_USB_F_AUTOBOT)	+= usb_f_autobot.o
+usb_f_qcrndis-y			:= f_qc_rndis.o rndis.o u_data_ipa.o
+obj-$(CONFIG_USB_F_QCRNDIS)	+= usb_f_qcrndis.o
 usb_f_rmnet_bam-y		:= f_rmnet.o u_ctrl_qti.o u_bam_dmux.o u_data_ipa.o
 obj-$(CONFIG_USB_F_RMNET_BAM)	+= usb_f_rmnet_bam.o

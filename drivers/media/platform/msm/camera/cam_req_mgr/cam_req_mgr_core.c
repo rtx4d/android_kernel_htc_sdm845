@@ -23,6 +23,11 @@
 #include "cam_debug_util.h"
 #include "cam_req_mgr_dev.h"
 
+//HTC_START, count sensor fps
+#include <linux/time.h>
+#define SENSOR_ISP_MAX 2
+//HTC_END
+
 static struct cam_req_mgr_core_device *g_crm_core_dev;
 
 void cam_req_mgr_handle_core_shutdown(void)
@@ -1836,6 +1841,15 @@ static int cam_req_mgr_process_trigger(void *priv, void *data)
 	struct cam_req_mgr_core_link        *link = NULL;
 	struct cam_req_mgr_req_queue        *in_q = NULL;
 	struct crm_task_payload             *task_data = NULL;
+	//HTC_START, count sensor fps
+	static struct timeval m_last[SENSOR_ISP_MAX];
+	struct timeval m_curr;
+	static int64_t last_frame_id[SENSOR_ISP_MAX];
+	uint32_t time_diff = 0;
+	static int is_1st_frame = 0;
+	static int core_idx = 0;
+	static int32_t link_hdl_1st = 0;
+	//HTC_END
 
 	if (!data || !priv) {
 		CAM_ERR(CAM_CRM, "input args NULL %pK %pK", data, priv);
@@ -1845,6 +1859,45 @@ static int cam_req_mgr_process_trigger(void *priv, void *data)
 	link = (struct cam_req_mgr_core_link *)priv;
 	task_data = (struct crm_task_payload *)data;
 	trigger_data = (struct cam_req_mgr_trigger_notify *)&task_data->u;
+
+	//HTC_START, count sensor fps
+	if ((trigger_data->frame_id == 1) && (is_1st_frame == 0)) {
+		is_1st_frame = 1;
+		link_hdl_1st = trigger_data->link_hdl;
+		core_idx = 0;
+		last_frame_id[0] = last_frame_id[1] = 0;
+	} else {
+		if (link_hdl_1st == trigger_data->link_hdl)
+			core_idx = 0;
+		else
+			core_idx = 1;
+
+		if ((trigger_data->frame_id > 3) && (is_1st_frame == 1))
+			is_1st_frame = 0;
+	}
+
+	if ((trigger_data->frame_id <= 3) || (trigger_data->frame_id == 10))
+	{
+		pr_info("[CAM]%s: req(%d) frame id: %lld\n", __func__, core_idx, trigger_data->frame_id);
+	}
+
+	if(trigger_data->frame_id == 1)
+	{
+		do_gettimeofday(&m_last[core_idx]);
+		last_frame_id[core_idx] = 1;
+	}
+	else
+	{
+		do_gettimeofday(&m_curr);
+		time_diff = (m_curr.tv_sec-m_last[core_idx].tv_sec)*1000000 + (m_curr.tv_usec-m_last[core_idx].tv_usec);
+		if(time_diff >= 1000000)   //1s
+		{
+			pr_info("[CAM]%s: req(%d) frame id: %lld, fps: %lld\n", __func__, core_idx, trigger_data->frame_id, (trigger_data->frame_id-last_frame_id[core_idx]));
+			m_last[core_idx] = m_curr;
+			last_frame_id[core_idx] = trigger_data->frame_id;
+		}
+	}
+	//HTC_END
 
 	CAM_DBG(CAM_REQ, "link_hdl %x frame_id %lld, trigger %x\n",
 		trigger_data->link_hdl,
@@ -2790,8 +2843,15 @@ int cam_req_mgr_link_control(struct cam_req_mgr_link_control *control)
 		link = (struct cam_req_mgr_core_link *)
 			cam_get_device_priv(control->link_hdls[i]);
 		if (!link) {
+//HTC_START
+#if 0
 			CAM_ERR(CAM_CRM, "Link(%d) is NULL on session 0x%x",
 				i, control->session_hdl);
+#else
+			CAM_ERR_RATE_LIMIT(CAM_CRM, "Link(%d) is NULL on session 0x%x",
+				i, control->session_hdl);
+#endif
+//HTC_END
 			rc = -EINVAL;
 			break;
 		}

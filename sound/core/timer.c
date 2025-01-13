@@ -1096,7 +1096,13 @@ static int snd_timer_register_system(void)
 	err = snd_timer_global_new("system", SNDRV_TIMER_GLOBAL_SYSTEM, &timer);
 	if (err < 0)
 		return err;
+/* HTC_AUD_START Klocwork */
+#if 0
 	strcpy(timer->name, "system timer");
+#else
+	strlcpy(timer->name, "system timer", sizeof(timer->name));
+#endif
+/* HTC_AUD_END */
 	timer->hw = snd_timer_system;
 	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
 	if (priv == NULL) {
@@ -1619,7 +1625,13 @@ static int snd_timer_user_tselect(struct file *file,
 		err = -EFAULT;
 		goto __err;
 	}
+/* HTC_AUD_START Klocwork */
+#if 0
 	sprintf(str, "application %i", current->pid);
+#else
+	snprintf(str, sizeof(str), "application %i", current->pid);
+#endif
+/* HTC_AUD_END */
 	if (tselect.id.dev_class != SNDRV_TIMER_CLASS_SLAVE)
 		tselect.id.dev_sclass = SNDRV_TIMER_SCLASS_APPLICATION;
 	err = snd_timer_open(&tu->timeri, str, &tselect.id, current->pid);

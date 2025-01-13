@@ -559,9 +559,17 @@ static int snd_rawmidi_info(struct snd_rawmidi_substream *substream,
 	info->subdevice = substream->number;
 	info->stream = substream->stream;
 	info->flags = rmidi->info_flags;
+/* HTC_AUD_START Klocwork */
+#if 0
 	strcpy(info->id, rmidi->id);
 	strcpy(info->name, rmidi->name);
 	strcpy(info->subname, substream->name);
+#else
+	strlcpy(info->id, rmidi->id, sizeof(info->id));
+	strlcpy(info->name, rmidi->name, sizeof(info->name));
+	strlcpy(info->subname, substream->name, sizeof(info->subname));
+#endif
+/* HTC_AUD_END */
 	info->subdevices_count = substream->pstr->substream_count;
 	info->subdevices_avail = (substream->pstr->substream_count -
 				  substream->pstr->substream_opened);
@@ -1723,7 +1731,12 @@ static int snd_rawmidi_dev_register(struct snd_device *device)
 		}
 	}
 #endif /* CONFIG_SND_OSSEMUL */
+/* HTC_AUD_START Klocwork */
+#if 0
 	sprintf(name, "midi%d", rmidi->device);
+#else
+	snprintf(name, sizeof(name), "midi%d", rmidi->device);
+#endif
 	entry = snd_info_create_card_entry(rmidi->card, name, rmidi->card->proc_root);
 	if (entry) {
 		entry->private_data = rmidi;

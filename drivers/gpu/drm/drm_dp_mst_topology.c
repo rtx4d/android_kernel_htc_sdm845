@@ -799,8 +799,10 @@ static struct drm_dp_mst_branch *drm_dp_add_mst_branch_device(u8 lct, u8 *rad)
 	struct drm_dp_mst_branch *mstb;
 
 	mstb = kzalloc(sizeof(*mstb), GFP_KERNEL);
-	if (!mstb)
+	if (!mstb) {
+		DRM_ERROR("Cannot allocate memory for drm_dp_mst_branch\n");
 		return NULL;
+	}
 
 	mstb->lct = lct;
 	if (lct > 1)
@@ -1040,10 +1042,11 @@ static bool drm_dp_port_setup_pdt(struct drm_dp_mst_port *port)
 		lct = drm_dp_calculate_rad(port, rad);
 
 		port->mstb = drm_dp_add_mst_branch_device(lct, rad);
-		port->mstb->mgr = port->mgr;
-		port->mstb->port_parent = port;
-
-		send_link = true;
+		if (port->mstb) {
+			port->mstb->mgr = port->mgr;
+			port->mstb->port_parent = port;
+			send_link = true;
+		}
 		break;
 	}
 	return send_link;

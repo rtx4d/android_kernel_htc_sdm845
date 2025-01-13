@@ -242,6 +242,15 @@ config USB_F_GSI
 config USB_F_QDSS
 	tristate
 
+config USB_F_CHARGER
+	tristate
+
+config USB_F_MIRRORLINK
+	tristate
+
+config USB_F_AUTOBOT
+	tristate
+
 # this first set of drivers all depend on bulk-capable hardware.
 
 config USB_CONFIGFS
@@ -579,6 +588,27 @@ config USB_CONFIGFS_F_QDSS
 	depends on USB_CONFIGFS
 	help
           USB QDSS function driver to get hwtracing related data over USB.
+
+config USB_CONFIGFS_F_CHARGER
+	bool "USB charger function"
+	select USB_F_CHARGER
+	depends on USB_CONFIGFS
+	help
+	  USB Charger Funcion driver to support charging over USB
+
+config USB_CONFIGFS_F_MIRRORLINK
+	bool "USB projector Mirrorlink function"
+	select USB_F_MIRRORLINK
+	depends on USB_CONFIGFS
+	help
+	  USB Mirrorlink function driver to support projector over USB.
+
+config USB_CONFIGFS_F_AUTOBOT
+	bool "USB projector Autobot function"
+	select USB_F_AUTOBOT
+	depends on USB_CONFIGFS
+	help
+	  USB AUTOBOT function driver to support projector over USB.
 
 choice
 	tristate "USB Gadget Drivers"

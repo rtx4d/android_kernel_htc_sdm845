@@ -11,12 +11,15 @@ gensrcs {
 
     // move to out/ as root for header generation because of scripts/unifdef
     // storage - at the expense of extra ../ references
-    cmd: "pushd out && mkdir -p scripts && rm -f scripts/unifdef && ln -s ../../$(location unifdef) scripts/unifdef && ../$(location scripts/headers_install.sh) `dirname ../$(out)` ../ $(in) && popd",
+    cmd: "pushd out && mkdir -p scripts && rm -f scripts/unifdef && ln -sf ../../$(location unifdef) scripts/unifdef && ../$(location scripts/headers_install.sh) `dirname ../$(out)` ../ $(in) && popd",
 
     tools: ["unifdef"],
     tool_files: ["scripts/headers_install.sh"],
     export_include_dirs: ["include/uapi"],
-    srcs: ["include/uapi/linux/qseecom.h"],
+    srcs: ["include/uapi/linux/qseecom.h",
+           "include/uapi/linux/msm_kgsl.h",
+           "include/uapi/media/msm_media_info.h",],
+
     output_extension: "h",
 }
 
@@ -25,3 +28,5 @@ cc_library_headers {
     generated_headers: ["qseecom-kernel-includes"],
     export_generated_headers: ["qseecom-kernel-includes"],
 }
+
+

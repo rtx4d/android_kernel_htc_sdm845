@@ -533,7 +533,7 @@ static ssize_t show_model(struct device *cd,
 	struct media_devnode *devnode = to_media_devnode(cd);
 	struct media_device *mdev = devnode->media_dev;
 
-	return sprintf(buf, "%.*s\n", (int)sizeof(mdev->model), mdev->model);
+	return snprintf(buf, PAGE_SIZE, "%.*s\n", (int)sizeof(mdev->model), mdev->model);
 }
 
 static DEVICE_ATTR(model, S_IRUGO, show_model, NULL);
@@ -856,7 +856,7 @@ void media_device_pci_init(struct media_device *mdev,
 	else
 		strlcpy(mdev->model, pci_name(pci_dev), sizeof(mdev->model));
 
-	sprintf(mdev->bus_info, "PCI:%s", pci_name(pci_dev));
+	snprintf(mdev->bus_info, sizeof(mdev->bus_info), "PCI:%s", pci_name(pci_dev));
 
 	mdev->hw_revision = (pci_dev->subsystem_vendor << 16)
 			    | pci_dev->subsystem_device;

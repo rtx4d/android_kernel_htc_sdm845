@@ -126,7 +126,7 @@ static ssize_t bl_power_show(struct device *dev, struct device_attribute *attr,
 {
 	struct backlight_device *bd = to_backlight_device(dev);
 
-	return sprintf(buf, "%d\n", bd->props.power);
+	return snprintf(buf, PAGE_SIZE, "%d\n", bd->props.power);
 }
 
 static ssize_t bl_power_store(struct device *dev, struct device_attribute *attr,
@@ -167,7 +167,7 @@ static ssize_t brightness_show(struct device *dev,
 {
 	struct backlight_device *bd = to_backlight_device(dev);
 
-	return sprintf(buf, "%d\n", bd->props.brightness);
+	return snprintf(buf, PAGE_SIZE, "%d\n", bd->props.brightness);
 }
 
 int backlight_device_set_brightness(struct backlight_device *bd,
@@ -220,7 +220,7 @@ static ssize_t type_show(struct device *dev, struct device_attribute *attr,
 {
 	struct backlight_device *bd = to_backlight_device(dev);
 
-	return sprintf(buf, "%s\n", backlight_types[bd->props.type]);
+	return snprintf(buf, PAGE_SIZE, "%s\n", backlight_types[bd->props.type]);
 }
 static DEVICE_ATTR_RO(type);
 
@@ -229,7 +229,7 @@ static ssize_t max_brightness_show(struct device *dev,
 {
 	struct backlight_device *bd = to_backlight_device(dev);
 
-	return sprintf(buf, "%d\n", bd->props.max_brightness);
+	return snprintf(buf, PAGE_SIZE, "%d\n", bd->props.max_brightness);
 }
 static DEVICE_ATTR_RO(max_brightness);
 
@@ -241,9 +241,9 @@ static ssize_t actual_brightness_show(struct device *dev,
 
 	mutex_lock(&bd->ops_lock);
 	if (bd->ops && bd->ops->get_brightness)
-		rc = sprintf(buf, "%d\n", bd->ops->get_brightness(bd));
+		rc = snprintf(buf, PAGE_SIZE, "%d\n", bd->ops->get_brightness(bd));
 	else
-		rc = sprintf(buf, "%d\n", bd->props.brightness);
+		rc = snprintf(buf, PAGE_SIZE, "%d\n", bd->props.brightness);
 	mutex_unlock(&bd->ops_lock);
 
 	return rc;

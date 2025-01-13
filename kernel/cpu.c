@@ -101,6 +101,9 @@ static DEFINE_MUTEX(cpuhp_state_mutex);
 static struct cpuhp_step cpuhp_bp_states[];
 static struct cpuhp_step cpuhp_ap_states[];
 
+extern int have_cpu_mask;
+extern struct cpumask cpu_mask;
+
 static bool cpuhp_is_ap_state(enum cpuhp_state state)
 {
 	/*
@@ -1126,6 +1129,9 @@ static int do_cpu_up(unsigned int cpu, enum cpuhp_state target)
 	int err = 0;
 	int switch_err = 0;
 
+	if(unlikely(have_cpu_mask) && cpumask_test_cpu(cpu, &cpu_mask))
+		return -EACCES;
+
 	if (!cpu_possible(cpu)) {
 		pr_err("can't online cpu %d because it is not configured as may-hotadd at boot time\n",
 		       cpu);
@@ -1188,6 +1194,13 @@ int freeze_secondary_cpus(int primary)
 
 	pr_info("Disabling non-boot CPUs ...\n");
 	for_each_online_cpu(cpu) {
+
+		if (pm_wakeup_pending()) {
+			error = -EBUSY;
+			pr_info("Abort disabling non-boot CPUs due to wakeup pending\n");
+			goto out;
+		}
+
 		if (cpu == primary)
 			continue;
 		trace_suspend_resume(TPS("CPU_OFF"), cpu, true);
@@ -1206,6 +1219,7 @@ int freeze_secondary_cpus(int primary)
 	else
 		pr_err("Non-boot CPUs are not disabled\n");
 
+out:
 	/*
 	 * Make sure the CPUs won't be enabled by someone else. We need to do
 	 * this even in case of failure as all disable_nonboot_cpus() users are

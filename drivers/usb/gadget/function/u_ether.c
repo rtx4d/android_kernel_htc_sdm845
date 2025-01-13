@@ -104,6 +104,7 @@ struct eth_dev {
 	bool			no_skb_reserve;
 	u8			host_mac[ETH_ALEN];
 	u8			dev_mac[ETH_ALEN];
+	int			miMaxMtu;
 	unsigned long		tx_throttle;
 	unsigned long		rx_throttle;
 	unsigned int		tx_pkts_rcvd;
@@ -183,13 +184,24 @@ module_param(u_ether_rx_pending_thld, uint, 0644);
 	xprintk(dev , KERN_INFO , fmt , ## args)
 
 /*-------------------------------------------------------------------------*/
+static struct eth_dev *the_dev = NULL;
 
 /* NETWORK DRIVER HOOKUP (to the layer above this driver) */
 
 static int ueth_change_mtu(struct net_device *net, int new_mtu)
 {
+	int		iMaxMtuSet = ETH_FRAME_LEN;
+
+	if (the_dev) {
+		if (the_dev->miMaxMtu == ETH_FRAME_LEN_MAX - ETH_HLEN)
+			iMaxMtuSet = ETH_FRAME_LEN_MAX - ETH_HLEN;
+	}
+
 	if (new_mtu <= ETH_HLEN || new_mtu > GETHER_MAX_ETH_FRAME_LEN)
 		return -ERANGE;
+	else if (new_mtu <= ETH_HLEN || new_mtu > iMaxMtuSet)
+		return -ERANGE;
+
 	net->mtu = new_mtu;
 
 	return 0;
@@ -370,7 +382,8 @@ static void rx_complete(struct usb_ep *ep, struct usb_request *req)
 		DBG(dev, "rx %s reset\n", ep->name);
 		defer_kevent(dev, WORK_RX_MEMORY);
 quiesce:
-		dev_kfree_skb_any(skb);
+		if (skb)
+			dev_kfree_skb_any(skb);
 		goto clean;
 
 	/* data overrun */
@@ -543,14 +556,19 @@ static void process_rx_w(struct work_struct *work)
 	struct eth_dev	*dev = container_of(work, struct eth_dev, rx_work);
 	struct sk_buff	*skb;
 	int		status = 0;
+	unsigned int	uiCurMtu = 0;
 
 	if (!dev->port_usb)
 		return;
 
+	uiCurMtu = dev->net->mtu + ETH_HLEN;
+	if ((uiCurMtu <= ETH_HLEN) || (uiCurMtu > ETH_FRAME_LEN_MAX))
+		uiCurMtu = ETH_FRAME_LEN;
+
 	while ((skb = skb_dequeue(&dev->rx_frames))) {
 		if (status < 0
 				|| ETH_HLEN > skb->len
-				|| skb->len > ETH_FRAME_LEN) {
+				|| skb->len > uiCurMtu) {
 			dev->net->stats.rx_errors++;
 			dev->net->stats.rx_length_errors++;
 			DBG(dev, "rx length %d\n", skb->len);
@@ -778,6 +796,12 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 	u32			fixed_in_len = 0;
 	bool			is_fixed = false;
 
+	if ((!skb) || (IS_ERR(skb)))
+		return NETDEV_TX_OK;
+
+	if ((!net) || (IS_ERR(net)))
+		return NETDEV_TX_OK;
+
 	spin_lock_irqsave(&dev->lock, flags);
 	if (dev->port_usb) {
 		in = dev->port_usb->in_ep;
@@ -788,7 +812,7 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 	}
 	spin_unlock_irqrestore(&dev->lock, flags);
 
-	if (skb && !in) {
+	if (!in) {
 		dev_kfree_skb_any(skb);
 		return NETDEV_TX_OK;
 	}
@@ -1428,6 +1452,8 @@ struct net_device *gether_setup_name_default(const char *netname)
 
 	SET_NETDEV_DEVTYPE(net, &gadget_type);
 
+	the_dev = dev;
+
 	return net;
 }
 EXPORT_SYMBOL_GPL(gether_setup_name_default);
@@ -1592,8 +1618,15 @@ void gether_cleanup(struct eth_dev *dev)
 	flush_work(&dev->work);
 	cancel_work_sync(&dev->rx_work);
 	free_netdev(dev->net);
+	the_dev = NULL;
 }
 EXPORT_SYMBOL_GPL(gether_cleanup);
+
+int gether_change_mtu(int new_mtu)
+{
+	struct eth_dev *dev = the_dev;
+	return ueth_change_mtu(dev->net, new_mtu);
+}
 
 /**
  * gether_connect - notify network layer that USB link is active

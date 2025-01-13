@@ -159,6 +159,7 @@ struct sdhci_host *sdhci_pltfm_init(struct platform_device *pdev,
 
 	extcon = extcon_get_edev_by_phandle(&pdev->dev, 0);
 	if (IS_ERR(extcon) && PTR_ERR(extcon) != -ENODEV) {
+		sdhci_free_host(host);
 		ret = PTR_ERR(extcon);
 		goto err;
 	}

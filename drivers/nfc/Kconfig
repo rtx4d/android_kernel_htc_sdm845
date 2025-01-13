@@ -59,6 +59,7 @@ config NFC_PORT100
 
 	  If unsure, say N.
 
+
 source "drivers/nfc/fdp/Kconfig"
 source "drivers/nfc/pn544/Kconfig"
 source "drivers/nfc/pn533/Kconfig"
@@ -70,6 +71,18 @@ source "drivers/nfc/nxp-nci/Kconfig"
 source "drivers/nfc/s3fwrn5/Kconfig"
 source "drivers/nfc/st95hf/Kconfig"
 endmenu
+
+config SENSORS_NFC_PN553
+        tristate "PN553 NFC sensor support"
+        depends on I2C
+        help
+          PN553 NFC Driver implemented.
+
+config SENSORS_NFC_CXD224X
+        tristate "CXD224X NFC sensor support"
+        depends on I2C=y
+        help
+          CXD224X NFC Driver implemented.
 
 config NFC_NQ
         tristate "QTI NCI based NFC Controller Driver for NQx"

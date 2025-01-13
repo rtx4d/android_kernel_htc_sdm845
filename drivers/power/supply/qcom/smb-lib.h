@@ -19,6 +19,11 @@
 #include <linux/regulator/consumer.h>
 #include <linux/extcon.h>
 #include "storm-watch.h"
+#ifdef CONFIG_HTC_BATT
+#include <linux/power/htc_battery.h>
+#include <linux/qpnp/qpnp-adc.h>
+#include <linux/of_gpio.h>
+#endif
 
 enum print_reason {
 	PR_INTERRUPT	= BIT(0),
@@ -157,6 +162,15 @@ static const unsigned int smblib_extcon_cable[] = {
 	EXTCON_NONE,
 };
 
+#ifdef CONFIG_HTC_BATT
+enum {
+	CC_DET_NONE = 0,
+	CC_DET_DEFAULT,
+	CC_DET_MEDIUM,
+	CC_DET_HIGH,
+};
+#endif  //CONFIG_HTC_BATT
+
 /* EXTCON_USB and EXTCON_USB_HOST are mutually exclusive */
 static const u32 smblib_extcon_exclusive[] = {0x3, 0};
 
@@ -278,7 +292,9 @@ struct smb_charger {
 	/* regulators */
 	struct smb_regulator	*vbus_vreg;
 	struct smb_regulator	*vconn_vreg;
+	struct regulator	*bob_vreg;
 	struct regulator	*dpdm_reg;
+	struct regulator	*ext_power;
 
 	/* votables */
 	struct votable		*dc_suspend_votable;
@@ -316,6 +332,13 @@ struct smb_charger {
 	struct delayed_work	uusb_otg_work;
 	struct delayed_work	bb_removal_work;
 
+#ifdef CONFIG_HTC_BATT
+	struct delayed_work     chk_usb_icl_work;
+	struct delayed_work     dpdm_floating_chk_work;
+	struct delayed_work	cc_floating_chk_work;
+	struct delayed_work	type_c_no_debounce_work;
+#endif //CONFIG_HTC_BATT
+
 	/* cached status */
 	int			voltage_min_uv;
 	int			voltage_max_uv;
@@ -338,8 +361,15 @@ struct smb_charger {
 	bool			suspend_input_on_debug_batt;
 	int			otg_attempts;
 	int			vconn_attempts;
+#ifdef CONFIG_HTC_BATT
+	int			cc_first_det_sts;
+	bool			dpdm_float_checked;
+	unsigned int		cc_floating_cnt;
+#endif //CONFIG_HTC_BATT
 	int			default_icl_ua;
 	int			otg_cl_ua;
+	/* htc mfg */
+	int			vconn_sel;
 	bool			uusb_apsd_rerun_done;
 	bool			pd_hard_reset;
 	bool			typec_present;
@@ -374,6 +404,22 @@ struct smb_charger {
 	/* battery profile */
 	int			batt_profile_fcc_ua;
 	int			batt_profile_fv_uv;
+
+#ifdef CONFIG_HTC_BATT
+	/* htcchg */
+	u32			htcchg_ready_gpio;
+	u32			htcchg_enable_gpio;
+	struct qpnp_vadc_chip	*htcchg_vadc_usbin_isen;
+	u32			htcchg_vadc_usbin_isen_channel;
+	bool			htcchg_ready_sts;
+	int			htcchg_adc_result;
+	int			htcchg_usb_rsen;
+	int			htcchg_multiplier;
+	struct qpnp_vadc_chip	*vadc_usb_conn_temp;
+	u32			vadc_usb_conn_temp_channel;
+	int			usb_conn_fake_temp;
+	int			batt_fake_temp;
+#endif //CONFIG_HTC_BATT
 
 	/* qnovo */
 	int			usb_icl_delta_ua;
@@ -525,6 +571,12 @@ int smblib_get_prop_slave_current_now(struct smb_charger *chg,
 				union power_supply_propval *val);
 int smblib_set_prop_ship_mode(struct smb_charger *chg,
 				const union power_supply_propval *val);
+int smblib_get_ext_otg_control(struct smb_charger *chg,
+			union power_supply_propval *val);
+int smblib_set_ext_otg_control(struct smb_charger *chg,
+			const union power_supply_propval *val);
+int smblib_set_int_otg_control(struct smb_charger *chg,
+			const union power_supply_propval *val);
 int smblib_set_prop_charge_qnovo_enable(struct smb_charger *chg,
 				const union power_supply_propval *val);
 void smblib_suspend_on_debug_battery(struct smb_charger *chg);
@@ -548,7 +600,19 @@ int smblib_set_prop_pr_swap_in_progress(struct smb_charger *chg,
 int smblib_stat_sw_override_cfg(struct smb_charger *chg, bool override);
 void smblib_usb_typec_change(struct smb_charger *chg);
 int smblib_toggle_stat(struct smb_charger *chg, int reset);
+int smblib_vbus_disable(struct smb_charger *chg);
 
 int smblib_init(struct smb_charger *chg);
 int smblib_deinit(struct smb_charger *chg);
+#ifdef CONFIG_HTC_BATT
+void smblib_check_chg_enable(struct smb_charger *chg, union power_supply_propval *val);
+int smblib_get_usb_conn_temp(struct smb_charger *chg, union power_supply_propval *val);
+int smblib_get_usb_in_isen_current_ma(struct smb_charger *chg, union power_supply_propval *val);
+int smblib_get_usb_in_isen_adc(struct smb_charger *chg, union power_supply_propval *val);
+int smblib_get_ext_otg_chg_control(struct smb_charger *chg,
+			union power_supply_propval *val);
+int smblib_set_ext_otg_chg_control(struct smb_charger *chg,
+			const union power_supply_propval *val);
+#endif
+
 #endif /* __SMB2_CHARGER_H */

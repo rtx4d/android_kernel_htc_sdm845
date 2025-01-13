@@ -24,7 +24,7 @@
 #include "sdm845-mtp.dtsi"
 #include "sdm845-audio-overlay.dtsi"
 #include "external-soc.dtsi"
-#include "sda845-sdxpoorwills.dtsi"
+/*#include "sda845-sdxpoorwills.dtsi"*/
 
 / {
 	model = "Qualcomm Technologies, Inc. SDA845 v2 + SDXPOORWILLS MTP";

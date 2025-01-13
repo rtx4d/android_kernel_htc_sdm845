@@ -12,6 +12,7 @@ menuconfig INPUT_TOUCHSCREEN
 if INPUT_TOUCHSCREEN
 
 source "drivers/input/touchscreen/synaptics_dsx_2.6/Kconfig"
+source "drivers/input/touchscreen/synaptics_dsx_htc/Kconfig"
 
 config TOUCHSCREEN_PROPERTIES
 	def_tristate INPUT
@@ -1237,6 +1238,7 @@ config TOUCHSCREEN_ROHM_BU21023
 config TOUCHSCREEN_SYNAPTICS_DSX
         bool "Synaptics Touchscreen Driver"
         depends on I2C
+		default n
         help
           Say Y here if you have a Synaptics Touchscreen.
 
@@ -1312,5 +1314,16 @@ config TOUCHSCREEN_EKTF3XXX_CHIPSET
 	  report 10 touches at a time.
 
 		  If unusre, say N.
+config TOUCHSCREEN_USE_DSI_NOTIFY
+	bool "Use dsi notify"
+	default n
+	help
+	 Say Y here to enable dsi notify.
+
+config TOUCHSCREEN_USE_DRM_NOTIFY
+	bool "Use drm notify"
+	default n
+	help
+	  Say Y here to enable drm notify.
 
 endif

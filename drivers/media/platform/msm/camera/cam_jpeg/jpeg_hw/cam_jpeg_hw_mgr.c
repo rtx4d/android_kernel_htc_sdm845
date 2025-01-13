@@ -943,8 +943,10 @@ static int cam_jpeg_mgr_flush_req(void *hw_mgr_priv,
 		if ((struct cam_jpeg_hw_ctx_data *)
 			cfg_req->hw_cfg_args.ctxt_to_hw_map != ctx_data)
 			continue;
-
-		if (cfg_req->req_id != request_id)
+/* HTC_START */
+		// Add null pointer checker for cfg_req to fix Klockwork issue
+		if ((cfg_req) && (cfg_req->req_id != request_id))
+/* HTC_END */
 			continue;
 
 		list_del_init(&cfg_req->list);

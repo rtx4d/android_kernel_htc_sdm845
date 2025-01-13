@@ -1307,6 +1307,7 @@ static int wlfw_msa_mem_info_send_sync_msg(void)
 	struct wlfw_msa_info_req_msg_v01 req;
 	struct wlfw_msa_info_resp_msg_v01 resp;
 	struct msg_desc req_desc, resp_desc;
+	uint64_t max_mapped_addr;
 
 	if (!penv || !penv->wlfw_clnt)
 		return -ENODEV;
@@ -1353,9 +1354,23 @@ static int wlfw_msa_mem_info_send_sync_msg(void)
 		goto out;
 	}
 
+	max_mapped_addr = penv->msa_pa + penv->msa_mem_size;
 	penv->stats.msa_info_resp++;
 	penv->nr_mem_region = resp.mem_region_info_len;
 	for (i = 0; i < resp.mem_region_info_len; i++) {
+
+		if (resp.mem_region_info[i].size > penv->msa_mem_size ||
+		    resp.mem_region_info[i].region_addr >= max_mapped_addr ||
+		    resp.mem_region_info[i].region_addr < penv->msa_pa ||
+		    resp.mem_region_info[i].size +
+		    resp.mem_region_info[i].region_addr > max_mapped_addr) {
+			icnss_pr_dbg("Received out of range Addr: 0x%llx Size: 0x%x\n",
+					resp.mem_region_info[i].region_addr,
+					resp.mem_region_info[i].size);
+			ret = -EINVAL;
+			goto fail_unwind;
+		}
+
 		penv->mem_region[i].reg_addr =
 			resp.mem_region_info[i].region_addr;
 		penv->mem_region[i].size =
@@ -1370,6 +1385,8 @@ static int wlfw_msa_mem_info_send_sync_msg(void)
 
 	return 0;
 
+fail_unwind:
+	memset(&penv->mem_region[0], 0, sizeof(penv->mem_region[0]) * i);
 out:
 	penv->stats.msa_info_err++;
 	ICNSS_QMI_ASSERT();
@@ -1543,12 +1560,23 @@ static int wlfw_cap_send_sync_msg(void)
 		strlcpy(penv->fw_build_id, resp.fw_build_id,
 			QMI_WLFW_MAX_BUILD_ID_LEN_V01 + 1);
 
+	/* HTC_WIFI_START */
+#if 0
 	icnss_pr_dbg("Capability, chip_id: 0x%x, chip_family: 0x%x, board_id: 0x%x, soc_id: 0x%x, fw_version: 0x%x, fw_build_timestamp: %s, fw_build_id: %s",
 		     penv->chip_info.chip_id, penv->chip_info.chip_family,
 		     penv->board_info.board_id, penv->soc_info.soc_id,
 		     penv->fw_version_info.fw_version,
 		     penv->fw_version_info.fw_build_timestamp,
 		     penv->fw_build_id);
+#else
+	icnss_pr_info("Capability, chip_id: 0x%x, chip_family: 0x%x, board_id: 0x%x, soc_id: 0x%x, fw_version: 0x%x, fw_build_timestamp: %s, fw_build_id: %s",
+		     penv->chip_info.chip_id, penv->chip_info.chip_family,
+		     penv->board_info.board_id, penv->soc_info.soc_id,
+		     penv->fw_version_info.fw_version,
+		     penv->fw_version_info.fw_build_timestamp,
+		     penv->fw_build_id);
+#endif
+	/* HTC_WIFI_END */
 
 	return 0;
 
@@ -2665,8 +2693,23 @@ static int icnss_modem_notifier_nb(struct notifier_block *nb,
 
 	icnss_pr_vdbg("Modem-Notify: event %lu\n", code);
 
+	/* HTC_WIFI_START */
+	// ** remove original code
+#if 0
 	if (code == SUBSYS_AFTER_SHUTDOWN &&
-	    notif->crashed == CRASH_STATUS_ERR_FATAL) {
+		notif->crashed != CRASH_STATUS_WDOG_BITE) {
+#else
+	// ** add new code
+#if defined(CONFIG_HTC_FEATURES_SSR)
+	if (code == SUBSYS_AFTER_SHUTDOWN &&
+		notif->crashed == CRASH_STATUS_ERR_FATAL &&
+		notif->enable_ramdump == ENABLE_RAMDUMP) {
+#else
+	if (code == SUBSYS_AFTER_SHUTDOWN &&
+		notif->crashed == CRASH_STATUS_ERR_FATAL) {
+#endif /* #if defined(CONFIG_HTC_FEATURES_SSR) */
+
+#endif /* #if 0 */
 		ret = icnss_assign_msa_perm_all(priv,
 						ICNSS_MSA_PERM_HLOS_ALL);
 		if (!ret) {

@@ -50,6 +50,7 @@
 #define DP_AUX_I2C_MOT			0x4
 #define DP_AUX_NATIVE_WRITE		0x8
 #define DP_AUX_NATIVE_READ		0x9
+#define DP_AUX_EDID_READ		0x20
 
 #define DP_AUX_NATIVE_REPLY_ACK		(0x0 << 0)
 #define DP_AUX_NATIVE_REPLY_NACK	(0x1 << 0)

@@ -72,9 +72,11 @@
 		regulator-max-microvolt = <1050000>;
 		regulator-enable-ramp-delay = <135>;
 		enable-active-high;
+/* HTC_AUD: gpio9 & gpio12 are used by audio
 		gpio = <&pm8998_gpios 12 0>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&camera_rear_dvdd_en_default>;
+*/
 		vin-supply = <&pm8998_s3>;
 	};
 
@@ -86,9 +88,11 @@
 		regulator-max-microvolt = <1050000>;
 		regulator-enable-ramp-delay = <233>;
 		enable-active-high;
+/* HTC_AUD: gpio9 & gpio12 are used by audio
 		gpio = <&pm8998_gpios 9 0>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&camera_dvdd_en_default>;
+*/
 		vin-supply = <&pm8998_s3>;
 	};
 
@@ -187,6 +191,7 @@
 				&cam_sensor_rear_active>;
 		pinctrl-1 = <&cam_sensor_mclk0_suspend
 				&cam_sensor_rear_suspend>;
+/*HTC_AUD use gpio 79
 		gpios = <&tlmm 13 0>,
 			<&tlmm 80 0>,
 			<&tlmm 79 0>;
@@ -197,6 +202,16 @@
 		gpio-req-tbl-label = "CAMIF_MCLK0",
 					"CAM_RESET0",
 					"CAM_VANA0";
+*/
+/*HTC_START*/
+		gpios = <&tlmm 13 0>,
+			<&tlmm 80 0>;
+		gpio-reset = <1>;
+		gpio-req-tbl-num = <0 1>;
+		gpio-req-tbl-flags = <1 0>;
+		gpio-req-tbl-label = "CAMIF_MCLK0",
+					"CAM_RESET0";
+/*HTC_END*/
 		sensor-position = <0>;
 		sensor-mode = <0>;
 		cci-master = <0>;
@@ -317,6 +332,7 @@
 				&cam_sensor_rear_active>;
 		pinctrl-1 = <&cam_sensor_mclk0_suspend
 				&cam_sensor_rear_suspend>;
+/*HTC_AUD use gpio 79
 		gpios = <&tlmm 13 0>,
 			<&tlmm 80 0>,
 			<&tlmm 79 0>;
@@ -327,6 +343,16 @@
 		gpio-req-tbl-label = "CAMIF_MCLK0",
 					"CAM_RESET0",
 					"CAM_VANA";
+*/
+/*HTC_START*/
+		gpios = <&tlmm 13 0>,
+			<&tlmm 80 0>;
+		gpio-reset = <1>;
+		gpio-req-tbl-num = <0 1>;
+		gpio-req-tbl-flags = <1 0>;
+		gpio-req-tbl-label = "CAMIF_MCLK0",
+					"CAM_RESET0";
+/*HTC_END*/
 		sensor-mode = <0>;
 		cci-master = <0>;
 		status = "ok";

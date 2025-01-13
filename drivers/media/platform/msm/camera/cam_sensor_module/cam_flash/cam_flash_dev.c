@@ -16,6 +16,14 @@
 #include "cam_flash_soc.h"
 #include "cam_flash_core.h"
 
+//HTC_START, HTC_CAM_FEATURE_FLASH_RESTRICTION
+#define HTC_CAM_FEATURE_FLASH_RESTRICTION
+
+#ifdef HTC_CAM_FEATURE_FLASH_RESTRICTION
+static struct kobject *led_status_obj; // tmp remove for fc-1
+#endif
+//HTC_END, HTC_CAM_FEATURE_FLASH_RESTRICTION
+
 static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 		void *arg, struct cam_flash_private_soc *soc_private)
 {
@@ -596,6 +604,192 @@ static struct i2c_driver cam_flash_i2c_driver = {
 	},
 };
 
+//HTC_START, HTC_CAM_FEATURE_FLASH_RESTRICTION
+#ifdef HTC_CAM_FEATURE_FLASH_RESTRICTION
+static uint32_t led_ril_status_value;
+static uint32_t led_wimax_status_value;
+static uint32_t led_hotspot_status_value;
+static uint16_t led_low_temp_limit = 5;
+static uint16_t led_low_cap_limit = 14;
+static uint16_t led_low_cap_limit_dual = 15;
+
+static ssize_t led_ril_status_get(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	ssize_t length;
+	length = sprintf(buf, "%d\n", led_ril_status_value);
+	return length;
+}
+
+static ssize_t led_ril_status_set(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	uint32_t tmp = 0;
+
+	if (buf[1] == '\n')
+		tmp = buf[0] - 0x30;
+
+	led_ril_status_value = tmp;
+	pr_info("[CAM][FL] led_ril_status_value = %d\n", led_ril_status_value);
+	return count;
+}
+
+static ssize_t led_wimax_status_get(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	ssize_t length;
+	length = sprintf(buf, "%d\n", led_wimax_status_value);
+	return length;
+}
+
+static ssize_t led_wimax_status_set(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	uint32_t tmp = 0;
+
+	if (buf[1] == '\n')
+		tmp = buf[0] - 0x30;
+
+	led_wimax_status_value = tmp;
+	pr_info("[CAM][FL] led_wimax_status_value = %d\n", led_wimax_status_value);
+	return count;
+}
+
+static ssize_t led_hotspot_status_get(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	ssize_t length;
+	length = sprintf(buf, "%d\n", led_hotspot_status_value);
+	return length;
+}
+
+static ssize_t led_hotspot_status_set(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	uint32_t tmp = 0;
+
+	tmp = buf[0] - 0x30; /* only get the first char */
+
+	led_hotspot_status_value = tmp;
+	pr_info("[CAM][FL] led_hotspot_status_value = %d\n", led_hotspot_status_value);
+	return count;
+}
+
+static ssize_t low_temp_limit_get(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	ssize_t length;
+	length = sprintf(buf, "%d\n", led_low_temp_limit);
+	return length;
+}
+
+static ssize_t low_cap_limit_get(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	ssize_t length;
+	length = sprintf(buf, "%d\n", led_low_cap_limit);
+	return length;
+}
+
+static ssize_t low_cap_limit_dual_get(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	ssize_t length;
+	length = sprintf(buf, "%d\n", led_low_cap_limit_dual);
+	return length;
+}
+
+static DEVICE_ATTR(led_ril_status, 0644,
+	led_ril_status_get,
+	led_ril_status_set);
+
+static DEVICE_ATTR(led_wimax_status, 0644,
+	led_wimax_status_get,
+	led_wimax_status_set);
+
+static DEVICE_ATTR(led_hotspot_status, 0644,
+	led_hotspot_status_get,
+	led_hotspot_status_set);
+
+static DEVICE_ATTR(low_temp_limit, 0444,
+	low_temp_limit_get,
+	NULL);
+
+static DEVICE_ATTR(low_cap_limit, 0444,
+	low_cap_limit_get,
+	NULL);
+
+static DEVICE_ATTR(low_cap_limit_dual, 0444,
+	low_cap_limit_dual_get,
+	NULL);
+
+static int __init msm_led_trigger_sysfs_init(void)
+{
+	int ret = 0;
+
+	pr_info("[CAM][FL] %s:%d\n", __func__, __LINE__);
+
+	led_status_obj = kobject_create_and_add("camera_led_status", NULL);
+	if (led_status_obj == NULL) {
+		pr_info("[CAM][FL] msm_camera_led: subsystem_register failed\n");
+		ret = -ENOMEM;
+		goto error;
+	}
+
+	ret = sysfs_create_file(led_status_obj,
+		&dev_attr_led_ril_status.attr);
+	if (ret) {
+		pr_err("[CAM][FL] msm_camera_led: sysfs_create_file dev_attr_led_ril_status failed\n");
+		ret = -EFAULT;
+		goto error;
+	}
+	ret = sysfs_create_file(led_status_obj,
+		&dev_attr_led_wimax_status.attr);
+	if (ret) {
+		pr_err("[CAM][FL] msm_camera_led: sysfs_create_file dev_attr_led_wimax_status failed\n");
+		ret = -EFAULT;
+		goto error;
+	}
+	ret = sysfs_create_file(led_status_obj,
+		&dev_attr_led_hotspot_status.attr);
+	if (ret) {
+		pr_err("[CAM][FL] msm_camera_led: sysfs_create_file dev_attr_led_hotspot_status failed\n");
+		ret = -EFAULT;
+		goto error;
+	}
+	ret = sysfs_create_file(led_status_obj,
+		&dev_attr_low_temp_limit.attr);
+	if (ret) {
+		pr_err("[CAM][FL] msm_camera_led: sysfs_create_file dev_attr_low_temp_limit failed\n");
+		ret = -EFAULT;
+		goto error;
+	}
+	ret = sysfs_create_file(led_status_obj,
+		&dev_attr_low_cap_limit.attr);
+	if (ret) {
+		pr_err("[CAM][FL] msm_camera_led: sysfs_create_file dev_attr_low_cap_limit failed\n");
+		ret = -EFAULT;
+		goto error;
+	}
+	ret = sysfs_create_file(led_status_obj,
+		&dev_attr_low_cap_limit_dual.attr);
+	if (ret) {
+		pr_err("[CAM][FL] msm_camera_led: sysfs_create_file dev_attr_low_cap_limit_dual failed\n");
+		ret = -EFAULT;
+		goto error;
+	}
+
+	pr_info("[CAM][FL] %s:%d ret %d\n", __func__, __LINE__, ret);
+	return ret;
+
+error:
+	kobject_del(led_status_obj);
+	return ret;
+
+}
+#endif
+//HTC_END, HTC_CAM_FEATURE_FLASH_RESTRICTION
+
 static int32_t __init cam_flash_init_module(void)
 {
 	int32_t rc = 0;
@@ -603,7 +797,11 @@ static int32_t __init cam_flash_init_module(void)
 	rc = platform_driver_register(&cam_flash_platform_driver);
 	if (rc == 0) {
 		CAM_DBG(CAM_FLASH, "platform probe success");
-		return 0;
+	//HTC_START, HTC_CAM_FEATURE_FLASH_RESTRICTION
+		rc = msm_led_trigger_sysfs_init();
+		pr_info("%s:%d rc %d\n", __func__, __LINE__, rc);
+	//HTC_END, HTC_CAM_FEATURE_FLASH_RESTRICTION
+		return rc;
 	}
 
 	rc = i2c_add_driver(&cam_flash_i2c_driver);

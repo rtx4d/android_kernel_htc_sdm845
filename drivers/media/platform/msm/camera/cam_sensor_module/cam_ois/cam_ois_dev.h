@@ -31,12 +31,56 @@
 #define DEFINE_MSM_MUTEX(mutexname) \
 	static struct mutex mutexname = __MUTEX_INITIALIZER(mutexname)
 
+/*HTC_START*/
+#define	MSM_OIS_MAX_VREGS (10)
+#define	READ_OUT_TIME 5000000 /*5ms*/
+
+DEFINE_MSM_MUTEX(ois_gyro_mutex);
+#define MAX_GYRO_QUERY_SIZE 15
+
+#define MSM_OIS_DATA_BUFFER_SIZE 15
+
+#define MAX_FAIL_CNT 3
+
+enum cam_ois_timer_state_t {
+	OIS_TIME_INIT,
+	OIS_TIME_ACTIVE,
+	OIS_TIME_INACTIVE,
+	OIS_TIME_ERROR,
+};
+
+/*HTC_END*/
+
 enum cam_ois_state {
 	CAM_OIS_INIT,
 	CAM_OIS_ACQUIRE,
 	CAM_OIS_CONFIG,
 	CAM_OIS_START,
 };
+
+/*HTC_START*/
+struct ois_timer {
+	struct hrtimer hr_timer;
+	struct workqueue_struct *ois_wq;
+	struct work_struct g_work;
+	enum cam_ois_timer_state_t ois_timer_state;
+	struct cam_ois_ctrl_t *o_ctrl;
+	int i2c_fail_count;
+};
+
+/* ois data ring buffer type */
+struct msm_ois_readout {
+    int16_t ois_x_shift;
+    int16_t ois_y_shift;
+    int64_t readout_time;
+};
+
+struct msm_ois_readout_buffer {
+    struct msm_ois_readout buffer[MSM_OIS_DATA_BUFFER_SIZE];
+    int32_t buffer_head;
+    int32_t buffer_tail;
+};
+/*HTC_END*/
 
 /**
  * struct cam_ois_registered_driver_t - registered driver info
@@ -127,6 +171,9 @@ struct cam_ois_ctrl_t {
 	uint8_t ois_fw_flag;
 	uint8_t is_ois_calib;
 	struct cam_ois_opcode opcode;
+    /*HTC_START*/
+    struct msm_ois_readout_buffer buf;
+    /*HTC_END*/
 };
 
 #endif /*_CAM_OIS_DEV_H_ */

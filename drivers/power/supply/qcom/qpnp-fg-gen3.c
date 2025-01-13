@@ -26,6 +26,9 @@
 #include <linux/qpnp/qpnp-misc.h>
 #include "fg-core.h"
 #include "fg-reg.h"
+#ifdef CONFIG_HTC_BATT
+#include <linux/power/htc_battery.h>
+#endif // CONFIG_HTC_BATT
 
 #define FG_GEN3_DEV_NAME	"qcom,fg-gen3"
 
@@ -619,6 +622,21 @@ static int fg_get_charge_counter(struct fg_chip *chip, int *val)
 	*val = div_s64((int64_t)cc_soc * chip->cl.learned_cc_uah, CC_SOC_30BIT);
 	return 0;
 }
+#ifdef CONFIG_HTC_BATT
+static int fg_get_cc_soc(struct fg_chip *chip, int *val)
+{
+	int rc, cc_soc, tmp = 1000;
+
+	rc = fg_get_sram_prop(chip, FG_SRAM_CC_SOC_SW, &cc_soc);
+	if (rc < 0) {
+		pr_err("Error in getting CC_SOC_SW, rc=%d\n", rc);
+		return rc;
+	}
+
+	*val = div_s64((int64_t)cc_soc * tmp, CC_SOC_30BIT);
+	return 0;
+}
+#endif //CONFIG_HTC_BATT
 
 static int fg_get_jeita_threshold(struct fg_chip *chip,
 				enum jeita_levels level, int *temp_decidegC)
@@ -2205,7 +2223,11 @@ static int fg_adjust_recharge_voltage(struct fg_chip *chip)
 	/* Lower the recharge voltage in soft JEITA */
 	if (chip->health == POWER_SUPPLY_HEALTH_WARM ||
 			chip->health == POWER_SUPPLY_HEALTH_COOL)
+#ifdef CONFIG_HTC_BATT
+		recharge_volt_mv -= 100;
+#else
 		recharge_volt_mv -= 200;
+#endif //CONFIG_HTC_BATT
 
 	rc = fg_set_recharge_voltage(chip, recharge_volt_mv);
 	if (rc < 0) {
@@ -3310,6 +3332,10 @@ done:
 		chip->profile_loaded = true;
 
 	fg_dbg(chip, FG_STATUS, "profile loaded successfully");
+
+#ifdef CONFIG_HTC_BATT
+	htc_battery_probe_process(GAUGE_PROBE_DONE);
+#endif //CONFIG_HTC_BATT
 out:
 	chip->soc_reporting_ready = true;
 	vote(chip->awake_votable, ESR_FCC_VOTER, true, 0);
@@ -4084,6 +4110,12 @@ static int fg_psy_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CC_STEP_SEL:
 		pval->intval = chip->ttf.cc_step.sel;
 		break;
+#ifdef CONFIG_HTC_BATT
+	case POWER_SUPPLY_PROP_CC_SOC:
+		rc = fg_get_cc_soc(chip, &pval->intval);
+		break;
+#endif //CONFIG_HTC_BATT
+
 	default:
 		pr_err("unsupported property %d\n", psp);
 		rc = -EINVAL;
@@ -4286,6 +4318,9 @@ static enum power_supply_property fg_psy_props[] = {
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE,
 	POWER_SUPPLY_PROP_CC_STEP,
 	POWER_SUPPLY_PROP_CC_STEP_SEL,
+#ifdef CONFIG_HTC_BATT
+	POWER_SUPPLY_PROP_CC_SOC,
+#endif //CONFIG_HTC_BATT
 };
 
 static const struct power_supply_desc fg_psy_desc = {
@@ -5304,6 +5339,8 @@ static int fg_parse_dt(struct fg_chip *chip)
 	else
 		chip->dt.sys_term_curr_ma = temp;
 
+    pr_err("fg-sys-term-current = %d\n", chip->dt.sys_term_curr_ma);
+
 	rc = of_property_read_u32(node, "qcom,fg-chg-term-base-current", &temp);
 	if (rc < 0)
 		chip->dt.chg_term_base_curr_ma = DEFAULT_CHG_TERM_BASE_CURR_MA;
@@ -5855,6 +5892,13 @@ static int fg_gen3_probe(struct platform_device *pdev)
 
 	device_init_wakeup(chip->dev, true);
 	schedule_delayed_work(&chip->profile_load_work, 0);
+
+#ifdef CONFIG_HTC_BATT
+		if (get_kernel_flag() & KERNEL_FLAG_ENABLE_BMS_CHARGER_LOG)
+			fg_gen3_debug_mask = 0xFFF;
+		else
+			fg_gen3_debug_mask = FG_IRQ;
+#endif //CONFIG_HTC_BATT
 
 	pr_debug("FG GEN3 driver probed successfully\n");
 	return 0;

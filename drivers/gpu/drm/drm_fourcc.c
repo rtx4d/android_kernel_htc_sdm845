@@ -88,6 +88,10 @@ EXPORT_SYMBOL(drm_mode_legacy_fb_format);
 char *drm_get_format_name(uint32_t format)
 {
 	char *buf = kmalloc(32, GFP_KERNEL);
+	if (!buf) {
+		DRM_ERROR("Failed to allocate memory for format name\n");
+		return NULL;
+	}
 
 	snprintf(buf, 32,
 		 "%c%c%c%c %s-endian (0x%08x)",

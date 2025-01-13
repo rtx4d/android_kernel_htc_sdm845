@@ -4320,6 +4320,13 @@ long si_mem_available(void)
 	available += global_page_state(NR_SLAB_RECLAIMABLE) -
 		     min(global_page_state(NR_SLAB_RECLAIMABLE) / 2, wmark_low);
 
+	/*
+	 * Part of the kernel memory, which can be released under memory
+	 * pressure.
+	 */
+	available += global_node_page_state(NR_INDIRECTLY_RECLAIMABLE_BYTES) >>
+		PAGE_SHIFT;
+
 	if (available < 0)
 		available = 0;
 	return available;
@@ -6874,6 +6881,23 @@ void setup_per_zone_wmarks(void)
 	mutex_lock(&zonelists_mutex);
 	__setup_per_zone_wmarks();
 	mutex_unlock(&zonelists_mutex);
+}
+
+int vm_inactive_ratio = 0;
+int vm_inactive_ratio_handler(struct ctl_table *table, int write,
+	void __user *buffer, size_t *length, loff_t *ppos)
+{
+	struct zone *zone;
+	int old_ratio = vm_inactive_ratio;
+	int ret;
+
+	ret = proc_dointvec_minmax(table, write, buffer, length, ppos);
+	if (ret == 0 && write && vm_inactive_ratio != old_ratio) {
+		for_each_zone(zone){
+			zone->zone_pgdat->inactive_ratio = vm_inactive_ratio;
+		}
+	}
+	return ret;
 }
 
 /*

@@ -38,6 +38,7 @@
 #include <net/netlink.h>
 #include <net/genetlink.h>
 #include <linux/suspend.h>
+#include <linux/htc_flags.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/thermal.h>
@@ -50,6 +51,12 @@ MODULE_DESCRIPTION("Generic thermal management sysfs support");
 MODULE_LICENSE("GPL v2");
 
 #define THERMAL_MAX_ACTIVE	16
+#define FORCE_CHARGE            (1<<2)
+
+//For CCC certification solution
+static char *ccc_cool[2]    = { "CCC_OVERHEAT=COOL", NULL };
+static char *ccc_overheat[2]    = { "CCC_OVERHEAT=OVERHEAT", NULL };
+static char *ccc_shutdown[2]    = { "CCC_OVERHEAT=SHUTDOWN", NULL };
 
 static DEFINE_IDR(thermal_tz_idr);
 static DEFINE_IDR(thermal_cdev_idr);
@@ -454,7 +461,11 @@ static void handle_critical_trips(struct thermal_zone_device *tz,
 		dev_emerg(&tz->device,
 			  "critical temperature reached(%d C),shutting down\n",
 			  tz->temperature / 1000);
-		orderly_poweroff(true);
+		if (get_kernel_flag() & FORCE_CHARGE)
+			printk("%s: [%s] ignore power-off action when debugflag[6] set 4.\n",
+				__func__, tz->type);
+		else
+			orderly_poweroff(true);
 	}
 }
 
@@ -670,6 +681,29 @@ temp_show(struct device *dev, struct device_attribute *attr, char *buf)
 		return ret;
 
 	return sprintf(buf, "%d\n", temperature);
+}
+
+//For CCC certification solution
+static ssize_t
+temp_notify_ccc_store(struct device *dev, struct device_attribute *attr,
+	      const char *buf, size_t count)
+{
+	struct thermal_zone_device *tz = to_thermal_zone(dev);
+	unsigned int status=0;
+	unsigned long  value=0;
+	if (kstrtoul(buf, 10, &value))
+		return -EINVAL;
+
+	if (value == 1) //num 1 2 3 here just standfor an indicator, not means temp
+		status = kobject_uevent_env(&tz->device.kobj, KOBJ_CHANGE, ccc_cool);
+	if (value == 2)
+		status = kobject_uevent_env(&tz->device.kobj, KOBJ_CHANGE, ccc_overheat);
+	if (value == 3)
+		status = kobject_uevent_env(&tz->device.kobj, KOBJ_CHANGE, ccc_shutdown);
+
+	pr_warn("ccc surface temp uevent :temp=%s,sucess=%d\n",buf,status);
+
+	return count;
 }
 
 static ssize_t
@@ -1250,6 +1284,8 @@ static DEVICE_ATTR(passive_delay, 0644, passive_delay_show,
 			passive_delay_store);
 static DEVICE_ATTR(polling_delay, 0644, polling_delay_show,
 			polling_delay_store);
+//For CCC certification solution
+static DEVICE_ATTR(temp_notify_ccc, S_IWUSR, NULL, temp_notify_ccc_store);
 
 /* sys I/F for cooling device */
 #define to_cooling_device(_dev)	\
@@ -2227,6 +2263,11 @@ struct thermal_zone_device *thermal_zone_device_register(const char *type,
 		goto unregister;
 
 	result = device_create_file(&tz->device, &dev_attr_polling_delay);
+	if (result)
+		goto unregister;
+
+	//For CCC certification solution
+	result = device_create_file(&tz->device, &dev_attr_temp_notify_ccc);
 	if (result)
 		goto unregister;
 

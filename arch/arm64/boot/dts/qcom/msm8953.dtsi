@@ -2215,7 +2215,6 @@
 		compatible = "qcom,msm-ssc-sensors";
 		status = "ok";
 	};
-
 };
 
 #include "pm8953-rpm-regulator.dtsi"

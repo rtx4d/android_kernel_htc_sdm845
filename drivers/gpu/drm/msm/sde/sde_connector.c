@@ -11,6 +11,8 @@
  */
 
 #define pr_fmt(fmt)	"[drm:%s:%d] " fmt, __func__, __LINE__
+#include <linux/msm_drm_notify.h>
+#include <linux/msm_htc_util.h>
 #include "msm_drv.h"
 #include "sde_dbg.h"
 
@@ -21,6 +23,7 @@
 #include <linux/string.h>
 #include "dsi_drm.h"
 #include "dsi_display.h"
+#include "dsi_panel.h"
 #include "sde_crtc.h"
 #include "sde_rm.h"
 
@@ -61,6 +64,73 @@ static const struct drm_prop_enum_list e_power_mode[] = {
 	{SDE_MODE_DPMS_OFF,	"OFF"},
 };
 
+/**
+ * Backlight 1.0.
+ * sde_backlight_trans() -  Transfer BL level and Brightness level.
+ * Ref htc,brt-bl-table to map BL level and Brightness level.
+ * brightness_to_bl = true, The val was brigthness and return bl level.
+ * brightness_to_bl = false, The val was bl and return brightness level.
+ */
+static int sde_backlight_trans(int val, struct dsi_panel *panel, bool brightness_to_bl)
+{
+	unsigned int result;
+	int index = 0;
+	u16 *val_table;
+	u16 *ret_table;
+	struct backlight_table_v1_0 *brt_bl_table = &panel->bl_config.brt_bl_table;
+	int size = brt_bl_table->size;
+
+	if (htc_is_burst_bl_on(panel) && brightness_to_bl && panel->bl_config.burst_bl_value){
+		result = panel->bl_config.burst_bl_value;
+		goto exit;
+	}
+
+	/* Not define brt table */
+	if(!size || size > BACKLIGHT_TABLE_MAX_LENGTH || !brt_bl_table->brt_data || !brt_bl_table->bl_data)
+		return -ENOENT;
+
+	htc_update_bl_cali_data(brt_bl_table);
+
+	if (brightness_to_bl) {
+		val_table = brt_bl_table->brt_data;
+		ret_table = brt_bl_table->bl_data;
+	} else {
+		val_table = brt_bl_table->bl_data;
+		ret_table = brt_bl_table->brt_data;
+	}
+
+	if (val <= 0){
+		result = 0;
+	} else if (val < val_table[0]) {
+		/* Min value */
+		result = ret_table[0];
+	} else if (val >= val_table[size - 1]) {
+		/* Max value */
+		result = ret_table[size - 1];
+	} else {
+		/* Interpolation method */
+		result = val;
+		for(index = 0; index < size - 1; index++){
+			if (val >= val_table[index] && val <= val_table[index + 1]) {
+				int x0 = val_table[index];
+				int y0 = ret_table[index];
+				int x1 = val_table[index + 1];
+				int y1 = ret_table[index + 1];
+
+				if (x0 == x1)
+					result = y0;
+				else
+					result = y0 + (y1 - y0) * (val - x0) / (x1 - x0);
+
+				break;
+			}
+		}
+	}
+exit:
+	pr_info("mode=%d, %d => %d\n", brightness_to_bl, val, result);
+	return result;
+}
+
 static int sde_backlight_device_update_status(struct backlight_device *bd)
 {
 	int brightness;
@@ -72,19 +142,26 @@ static int sde_backlight_device_update_status(struct backlight_device *bd)
 
 	brightness = bd->props.brightness;
 
-	if ((bd->props.power != FB_BLANK_UNBLANK) ||
-			(bd->props.state & BL_CORE_FBBLANK) ||
-			(bd->props.state & BL_CORE_SUSPENDED))
-		brightness = 0;
-
 	c_conn = bl_get_data(bd);
 	display = (struct dsi_display *) c_conn->display;
+
+	if (!display || !display->panel || !dsi_panel_initialized(display->panel))
+		return -EINVAL;
+
 	if (brightness > display->panel->bl_config.bl_max_level)
 		brightness = display->panel->bl_config.bl_max_level;
 
-	/* map UI brightness into driver backlight level with rounding */
-	bl_lvl = mult_frac(brightness, display->panel->bl_config.bl_max_level,
-			display->panel->bl_config.brightness_max_level);
+	if (display->panel->bl_config.type == DSI_BACKLIGHT_I2C) {
+		/* map UI brightness into driver backlight level with backlight table.
+		 * if DSI_BACKLIGHT_PWM and DSI_BACKLIGHT_WLED also support 10 bits above,
+		 * the condition should be modified.
+		 */
+		bl_lvl = sde_backlight_trans(brightness, display->panel, true);
+	} else {
+		/* map UI brightness into driver backlight level with rounding */
+		bl_lvl = mult_frac(brightness, display->panel->bl_config.bl_max_level,
+				display->panel->bl_config.brightness_max_level);
+	}
 
 	if (!bl_lvl && brightness)
 		bl_lvl = 1;
@@ -134,6 +211,14 @@ static int sde_backlight_setup(struct sde_connector *c_conn,
 	bl_config = &display->panel->bl_config;
 	props.max_brightness = bl_config->brightness_max_level;
 	props.brightness = bl_config->brightness_max_level;
+
+	if (bl_config->type == DSI_BACKLIGHT_I2C && bl_config->i2c_bd_node) {
+		bl_config->i2c_bd = of_find_backlight_by_node(bl_config->i2c_bd_node);
+		if (!bl_config->i2c_bd) {
+			SDE_ERROR("I2C backlight device can't be found !\n");
+			return -ENODEV;
+		}
+	}
 	snprintf(bl_node_name, BL_NODE_NAME_SIZE, "panel%u-backlight",
 							display_count);
 	c_conn->bl_device = backlight_device_register(bl_node_name, dev->dev,
@@ -1056,7 +1141,7 @@ static int sde_connector_atomic_set_property(struct drm_connector *connector,
 {
 	struct sde_connector *c_conn;
 	struct sde_connector_state *c_state;
-	int idx, rc;
+	int idx, rc, blank;
 	uint64_t fence_fd;
 
 	if (!connector || !state || !property) {
@@ -1094,6 +1179,35 @@ static int sde_connector_atomic_set_property(struct drm_connector *connector,
 		} else {
 			msm_framebuffer_set_kmap(c_state->out_fb,
 					c_conn->fb_kmap);
+		}
+		break;
+	case CONNECTOR_PROP_LP:
+		blank = -1;
+		switch (val) {
+		case SDE_MODE_DPMS_ON:
+			blank = MSM_DRM_BLANK_UNBLANK;
+			break;
+		case SDE_MODE_DPMS_LP1:
+			blank = MSM_DRM_BLANK_STANDBY;
+			break;
+		case SDE_MODE_DPMS_LP2:
+			blank = MSM_DRM_BLANK_SUSPEND;
+			break;
+		case SDE_MODE_DPMS_OFF:
+			blank = MSM_DRM_BLANK_POWERDOWN;
+			break;
+		default:
+			SDE_ERROR_CONN(c_conn, "invalid lp value %lld\n", val);
+		}
+		if (blank >= 0 && state->crtc) {
+			struct msm_drm_notifier notifier_data = {
+				.data = &blank,
+				.id = state->crtc->index,
+			};
+			pr_info("[DRM][%s-%d] call msm_drm_notifier_call_chain Event %d start\n",__func__,__LINE__,MSM_DRM_REQUEST_EVENT_BLANK);
+			msm_drm_notifier_call_chain(MSM_DRM_REQUEST_EVENT_BLANK,
+						&notifier_data);
+			pr_info("[DRM][%s-%d] call msm_drm_notifier_call_chain Event %d end\n",__func__,__LINE__,MSM_DRM_REQUEST_EVENT_BLANK);
 		}
 		break;
 	case CONNECTOR_PROP_RETIRE_FENCE:

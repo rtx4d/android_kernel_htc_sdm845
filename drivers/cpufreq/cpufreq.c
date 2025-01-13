@@ -37,6 +37,10 @@
 
 static LIST_HEAD(cpufreq_policy_list);
 
+#ifdef CONFIG_QTI_THERMAL_LIMITS_DCVS
+extern unsigned long lmh_mitigated_freq(int cpu);
+#endif
+
 static inline bool policy_is_inactive(struct cpufreq_policy *policy)
 {
 	return cpumask_empty(policy->cpus);
@@ -443,7 +447,14 @@ static void __cpufreq_notify_transition(struct cpufreq_policy *policy,
 		adjust_jiffies(CPUFREQ_POSTCHANGE, freqs);
 		pr_debug("FREQ: %lu - CPU: %lu\n",
 			 (unsigned long)freqs->new, (unsigned long)freqs->cpu);
+
+#ifdef CONFIG_QTI_THERMAL_LIMITS_DCVS
+		/* Refer lmh CPU freq mitigation to record systrace log*/
+		trace_cpu_frequency(min((unsigned int)lmh_mitigated_freq(freqs->cpu), freqs->new), freqs->cpu);
+#else
 		trace_cpu_frequency(freqs->new, freqs->cpu);
+#endif
+
 		cpufreq_stats_record_transition(policy, freqs->new);
 		cpufreq_times_record_transition(freqs);
 		srcu_notifier_call_chain(&cpufreq_transition_notifier_list,
@@ -2333,7 +2344,14 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 
 	policy->min = new_policy->min;
 	policy->max = new_policy->max;
+
+#ifdef CONFIG_QTI_THERMAL_LIMITS_DCVS
+	/* Refer lmh CPU freq mitigation to record systrace log */
+	trace_cpu_frequency_limits(min((unsigned int)lmh_mitigated_freq(policy->cpu), policy->max),
+						min((unsigned int)lmh_mitigated_freq(policy->cpu), policy->min), policy->cpu);
+#else
 	trace_cpu_frequency_limits(policy->max, policy->min, policy->cpu);
+#endif
 
 	policy->cached_target_freq = UINT_MAX;
 

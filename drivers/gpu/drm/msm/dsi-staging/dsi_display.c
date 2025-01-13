@@ -31,6 +31,7 @@
 #include "dsi_clk.h"
 #include "dsi_pwr.h"
 #include "sde_dbg.h"
+#include <video/mipi_display.h>
 
 #define to_dsi_display(x) container_of(x, struct dsi_display, host)
 #define INT_BASE_10 10
@@ -52,7 +53,7 @@ static struct device_node *primary_active_node;
 static struct device_node *secondary_active_node;
 
 static const struct of_device_id dsi_display_dt_match[] = {
-	{.compatible = "qcom,dsi-display"},
+	{.compatible = "htc,dsi-display"},
 	{}
 };
 
@@ -110,6 +111,22 @@ static void dsi_display_ctrl_irq_update(struct dsi_display *display, bool en)
 			continue;
 		dsi_ctrl_irq_update(ctrl->ctrl, en);
 	}
+}
+
+
+int dsi_get_display_max_size(void)
+{
+	int maxSize = 0;
+	if (!primary_display || !primary_display->modes)
+		printk("%s: Can not access DRM display\n", __func__);
+	else {
+		printk("[mirrorlink] device(%d, %d)\n",
+			primary_display->modes->timing.h_active,
+			primary_display->modes->timing.v_active);
+		maxSize = primary_display->modes->timing.h_active * primary_display->modes->timing.v_active;
+	}
+
+	return maxSize;
 }
 
 void dsi_rect_intersect(const struct dsi_rect *r1,
@@ -6541,6 +6558,65 @@ int dsi_display_unprepare(struct dsi_display *display)
 
 	mutex_unlock(&display->display_lock);
 	SDE_EVT32(SDE_EVTLOG_FUNC_EXIT);
+	return rc;
+}
+
+/*
+ @param:cmd, request read address
+ @param:data, rx buffer
+ @param:len, requeset read count
+ --------------------------------
+ @return:nagtive or zero value means read fail, and postive value
+         means read bytes size
+*/
+int htc_mipi_dsi_dcs_read(struct dsi_panel *panel, u8 cmd, void *data, int len)
+{
+	int rc = 0;
+	u32 flags = 0;
+	struct dsi_display_ctrl *ctrl = NULL;
+
+	struct mipi_dsi_msg msg = {
+		.channel = panel->mipi_device.channel,
+		.type = MIPI_DSI_DCS_READ,
+		.tx_buf = &cmd,
+		.tx_len = 1,
+		.rx_buf = data,
+		.rx_len = len,
+		.flags = MIPI_DSI_MSG_LASTCOMMAND,
+	};
+
+	struct dsi_display *display = container_of(panel->host, struct dsi_display, host);
+
+	flags = (DSI_CTRL_CMD_FETCH_MEMORY | DSI_CTRL_CMD_READ | DSI_CTRL_CMD_LAST_COMMAND);
+
+	ctrl = &display->ctrl[display->cmd_master_idx];
+
+	rc = dsi_display_clk_ctrl(display->dsi_clk_handle,
+		DSI_ALL_CLKS, DSI_CLK_ON);
+	if (rc) {
+		pr_err("[%s] failed to enable DSI core clocks, rc=%d\n",
+		       display->name, rc);
+		goto error;
+	}
+
+	rc = dsi_display_cmd_engine_enable(display);
+	if (rc) {
+		pr_err("cmd engine enable failed\n");
+		rc = -EPERM;
+		goto error_disable_clks;
+	}
+
+	rc = dsi_ctrl_cmd_transfer(ctrl->ctrl, &msg, flags);
+	if (rc <= 0) {
+		pr_err("%s rx cmd transfer failed rc=%d\n", __func__, rc);
+	}
+
+	dsi_display_cmd_engine_disable(display);
+
+error_disable_clks:
+	dsi_display_clk_ctrl(display->dsi_clk_handle,
+		DSI_ALL_CLKS, DSI_CLK_OFF);
+error:
 	return rc;
 }
 

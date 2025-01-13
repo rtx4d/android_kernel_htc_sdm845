@@ -2504,3 +2504,10 @@ config FB_SM712
 	  This driver is also available as a module. The module will be
 	  called sm712fb. If you want to compile it as a module, say M
 	  here and read <file:Documentation/kbuild/modules.txt>.
+
+config FB_MINIFB
+        bool "Mini FB support"
+        depends on ION
+        default y if DRM_MSM
+        ---help---
+          This is a `virtual' frame buffer device for some specific usage.

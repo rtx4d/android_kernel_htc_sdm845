@@ -362,11 +362,42 @@ static long cam_private_ioctl(struct file *file, void *fh,
 
 		rc = cam_mem_mgr_alloc_and_map(&cmd);
 		if (!rc)
+		{
 			if (copy_to_user((void *)k_ioctl->handle,
 				&cmd, k_ioctl->size)) {
 				rc = -EFAULT;
 				break;
 			}
+		}
+//HTC_START
+		else
+		{
+		    int i =0;
+		    CAM_ERR(CAM_CRM, "cam_mem_mgr_alloc_and_map retry");
+		    for(i = 0; i < 3; i++)
+		    {
+		        rc = cam_mem_mgr_alloc_and_map(&cmd);
+		        if (!rc)
+		        {
+		            CAM_ERR(CAM_CRM, "cam_mem_mgr_alloc_and_map retry ok (%d)", i);
+		            break;
+		        }
+		    }
+		    if (!rc)
+		    {
+		        if (copy_to_user((void *)k_ioctl->handle,
+				&cmd, k_ioctl->size)) {
+		            rc = -EFAULT;
+		            CAM_ERR(CAM_CRM, "cam_mem_mgr_alloc_and_map copy_to_user fail");
+		            break;
+		        }
+		    }
+		    else
+		    {
+		        CAM_ERR(CAM_CRM, "cam_mem_mgr_alloc_and_map retry fail");
+		    }
+		}
+//HTC_END
 		}
 		break;
 	case CAM_REQ_MGR_MAP_BUF: {

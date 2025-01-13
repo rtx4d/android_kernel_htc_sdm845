@@ -532,7 +532,8 @@ static ssize_t dp_aux_transfer(struct drm_dp_aux *drm_aux,
 		struct drm_dp_aux_msg *msg)
 {
 	ssize_t ret;
-	int const retry_count = 5;
+	//int const retry_count = 5;
+	bool read_edid = false;
 	struct dp_aux_private *aux = container_of(drm_aux,
 		struct dp_aux_private, drm_aux);
 
@@ -547,13 +548,17 @@ static ssize_t dp_aux_transfer(struct drm_dp_aux *drm_aux,
 		goto unlock_exit;
 	}
 
+	read_edid = msg->request & DP_AUX_EDID_READ;
 	ret = dp_aux_cmd_fifo_tx(aux, msg);
 	if ((ret < 0) && !atomic_read(&aux->aborted)) {
 		aux->retry_cnt++;
-		if (!(aux->retry_cnt % retry_count))
+		//if (!(aux->retry_cnt % retry_count))
 			aux->catalog->update_aux_cfg(aux->catalog,
 				aux->cfg, PHY_AUX_CFG1);
+
 		aux->catalog->reset(aux->catalog);
+		if (read_edid)
+			usleep_range(1000, 1010);
 		goto unlock_exit;
 	} else if (ret < 0) {
 		goto unlock_exit;

@@ -41,6 +41,8 @@
 
 #define MAX_SETALT_TIMEOUT_MS 1000
 
+extern void htc_pd_controller_restart(void); /* HTC_AUD: HPKB:6799 add usb reset function */
+
 /* return the estimated delay based on USB frame counters */
 snd_pcm_uframes_t snd_usb_pcm_delay(struct snd_usb_substream *subs,
 				    unsigned int rate)
@@ -525,6 +527,12 @@ static int set_format(struct snd_usb_substream *subs, struct audioformat *fmt)
 			dev_err(&dev->dev,
 				"%d:%d: return to setting 0 failed (%d)\n",
 				fmt->iface, fmt->altsetting, err);
+/* HTC_AUD_START - HPKB:6799 reset PD to recover if hit timeout */
+			if (err == -ETIMEDOUT) {
+				dev_err(&dev->dev,"usb_set_interface timeout: trigger reset\n");
+				htc_pd_controller_restart();
+			}
+/* HTC_AUD_END */
 			return -EIO;
 		}
 		subs->interface = -1;
@@ -895,6 +903,12 @@ static int snd_usb_pcm_prepare(struct snd_pcm_substream *substream)
 		goto unlock;
 
 	iface = usb_ifnum_to_if(subs->dev, subs->cur_audiofmt->iface);
+/* HTC_AUD_START */
+	if (iface == NULL) {
+		ret = -EIO;
+		goto unlock;
+	}
+/* HTC_AUD_END */
 	alts = &iface->altsetting[subs->cur_audiofmt->altset_idx];
 	ret = snd_usb_init_sample_rate(subs->stream->chip,
 				       subs->cur_audiofmt->iface,
